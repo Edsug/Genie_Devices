@@ -1,0 +1,128 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GenieACS Device Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fas fa-network-wired"></i> GenieACS Device Manager</h1>
+                <div class="header-actions">
+                    <button id="reloadBtn" class="btn btn-secondary">
+                        <i class="fas fa-sync-alt"></i> Recargar Datos
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Statistics Panel -->
+        <div class="stats-panel">
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-router"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="totalDevices">-</h3>
+                    <p>Total Dispositivos</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-microchip"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="devicesWithSoftware">-</h3>
+                    <p>Con Software Version</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-wifi"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="devicesWithSSID">-</h3>
+                    <p>Con SSID</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="lastUpdate">-</h3>
+                    <p>Última Actualización</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Panel -->
+        <div class="search-panel">
+            <div class="search-container">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="Buscar por número de serie...">
+                </div>
+                <button id="clearBtn" class="btn btn-outline">
+                    <i class="fas fa-times"></i> Limpiar
+                </button>
+            </div>
+        </div>
+
+        <!-- Results Panel -->
+        <div class="results-panel">
+            <div class="results-header">
+                <h3>
+                    <i class="fas fa-list"></i>
+                    Dispositivos Encontrados: <span id="resultsCount">0</span>
+                </h3>
+            </div>
+
+            <!-- Loading -->
+            <div id="loadingSpinner" class="loading">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Cargando dispositivos...</p>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="error-message" style="display: none;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p>Error cargando los datos. Verifique que el servidor esté ejecutándose.</p>
+            </div>
+
+            <!-- Devices Grid -->
+            <div id="devicesGrid" class="devices-grid">
+                <!-- Los dispositivos se cargarán aquí dinámicamente -->
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <i class="fas fa-search"></i>
+                <h3>No se encontraron dispositivos</h3>
+                <p>Intenta con un término de búsqueda diferente</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Device Details Modal -->
+    <div id="deviceModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-info-circle"></i> Detalles del Dispositivo</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Detalles se cargarán aquí -->
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
