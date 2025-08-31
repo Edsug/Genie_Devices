@@ -1,136 +1,203 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GenieACS WiFi Manager</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
             <div class="header-content">
-                <h1><i class="fas fa-wifi"></i> GenieACS WiFi Manager</h1>
-                <p>Gestiona SSIDs y contraseñas de tus dispositivos en tiempo real</p>
-                <div class="header-actions">
-                    <button id="reloadBtn" class="btn btn-secondary">
-                        <i class="fas fa-sync-alt"></i> Recargar Datos
+                <div class="header-left">
+                    <h1><i class="fas fa-wifi"></i> GenieACS WiFi Manager</h1>
+                    <p>Gestión profesional de redes WiFi</p>
+                </div>
+                <div class="header-right">
+                    <button id="reloadBtn" class="btn btn-primary">
+                        <i class="fas fa-sync-alt"></i> Recargar
                     </button>
                 </div>
             </div>
-        </header>
-
-        <!-- Statistics Panel -->
-        <div class="stats-panel">
-            <div class="stat-card">
-                <div class="stat-icon">
-                    <i class="fas fa-router"></i>
-                </div>
-                <div class="stat-content">
-                    <h3 id="totalDevices">-</h3>
-                    <p>Total Dispositivos</p>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">
-                    <i class="fas fa-wifi"></i>
-                </div>
-                <div class="stat-content">
-                    <h3 id="devicesWithWifi">-</h3>
-                    <p>Con WiFi Configurado</p>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">
-                    <i class="fas fa-key"></i>
-                </div>
-                <div class="stat-content">
-                    <h3 id="devicesWithPasswords">-</h3>
-                    <p>Con Contraseñas</p>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">
-                    <i class="fas fa-network-wired"></i>
-                </div>
-                <div class="stat-content">
-                    <h3 id="totalNetworks">-</h3>
-                    <p>Redes WiFi Totales</p>
-                </div>
-            </div>
         </div>
+    </header>
 
-        <!-- Search Panel -->
-        <div class="search-panel">
+    <div class="container">
+        <!-- Stats Panel -->
+        <section class="stats-section">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-server"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3 id="totalDevices">0</h3>
+                        <p>Dispositivos Total</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-wifi"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3 id="devicesWithWifi">0</h3>
+                        <p>Con WiFi Configurado</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3 id="devicesWithPasswords">0</h3>
+                        <p>Con Contraseñas</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-broadcast-tower"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3 id="totalNetworks">0</h3>
+                        <p>Redes WiFi Totales</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Search Section -->
+        <section class="search-section">
             <div class="search-container">
                 <div class="search-box">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="searchInput" placeholder="Buscar dispositivo por número de serie...">
+                    <input type="text" id="searchInput" placeholder="Buscar por número de serie...">
+                    <button id="clearBtn" class="clear-btn" title="Limpiar búsqueda">
+                        <i class="fas fa-times"></i>
+                    </button>
                 </div>
-                <button id="clearBtn" class="btn btn-outline">
-                    <i class="fas fa-times"></i> Limpiar
-                </button>
             </div>
-        </div>
+        </section>
 
-        <!-- Results Panel -->
-        <div class="results-panel">
+        <!-- Results Section -->
+        <section class="results-section">
             <div class="results-header">
-                <h3>
-                    <i class="fas fa-list"></i>
-                    Dispositivos WiFi: <span id="resultsCount">0</span>
-                </h3>
+                <h3>Dispositivos WiFi: <span id="resultsCount">0</span></h3>
             </div>
 
-            <!-- Loading -->
-            <div id="loadingSpinner" class="loading">
+            <!-- Loading State -->
+            <div id="loadingState" class="state-container">
                 <i class="fas fa-spinner fa-spin"></i>
-                <p>Cargando dispositivos WiFi...</p>
+                <p>Cargando dispositivos...</p>
             </div>
 
-            <!-- Error Message -->
-            <div id="errorMessage" class="error-message" style="display: none;">
+            <!-- Error State -->
+            <div id="errorState" class="state-container" style="display: none;">
                 <i class="fas fa-exclamation-triangle"></i>
-                <p>Error cargando los datos. Verifique que el servidor esté ejecutándose.</p>
-            </div>
-
-            <!-- Devices Grid -->
-            <div id="devicesGrid" class="devices-grid">
-                <!-- Los dispositivos se cargarán aquí dinámicamente -->
+                <p>Error al cargar los datos</p>
+                <button onclick="loadDevices()" class="btn btn-primary">Reintentar</button>
             </div>
 
             <!-- Empty State -->
-            <div id="emptyState" class="empty-state" style="display: none;">
-                <i class="fas fa-wifi-slash"></i>
-                <h3>No se encontraron dispositivos WiFi</h3>
-                <p>No hay dispositivos con configuración WiFi disponible</p>
+            <div id="emptyState" class="state-container" style="display: none;">
+                <i class="fas fa-search"></i>
+                <p>No se encontraron dispositivos</p>
+            </div>
+
+            <!-- Devices Grid -->
+            <div id="devicesGrid" class="devices-grid" style="display: none;">
+                <!-- Los dispositivos se cargarán aquí dinámicamente -->
+            </div>
+        </section>
+    </div>
+
+    <!-- Modal para detalles de red -->
+    <div id="networkDetailsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Detalles de Red</h2>
+                <button class="close" onclick="closeModal('networkDetailsModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="network-details-content">
+                    <div class="detail-row">
+                        <label>Banda:</label>
+                        <span id="modalBand">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>SSID:</label>
+                        <span id="modalSSID">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Contraseña:</label>
+                        <div class="password-display">
+                            <span id="modalPassword" class="password-value">-</span>
+                            <button id="modalPasswordToggle" class="password-toggle">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="detail-row">
+                        <label>Dispositivo:</label>
+                        <span id="modalDevice">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Product Class:</label>
+                        <span id="modalProductClass">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>IP Externa:</label>
+                        <span id="modalIP">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>MAC Address:</label>
+                        <span id="modalMAC">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Última Conexión:</label>
+                        <span id="modalLastInform">-</span>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="editSSIDBtn" class="btn btn-secondary">
+                        <i class="fas fa-edit"></i> Editar SSID
+                    </button>
+                    <button id="editPasswordBtn" class="btn btn-warning">
+                        <i class="fas fa-key"></i> Cambiar Contraseña
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Edit SSID Modal -->
+    <!-- Modal para editar SSID -->
     <div id="editSSIDModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-edit"></i> Editar SSID</h2>
-                <span class="close" data-modal="editSSIDModal">&times;</span>
+                <h2>Editar SSID</h2>
+                <button class="close" onclick="closeModal('editSSIDModal')">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
                 <form id="editSSIDForm">
                     <div class="form-group">
-                        <label for="currentSSID">SSID Actual:</label>
+                        <label>SSID Actual:</label>
                         <input type="text" id="currentSSID" readonly>
                     </div>
                     <div class="form-group">
-                        <label for="newSSID">Nuevo SSID:</label>
-                        <input type="text" id="newSSID" placeholder="Ingrese el nuevo nombre de red" maxlength="32" required>
+                        <label>Nuevo SSID: *</label>
+                        <input type="text" id="newSSID" maxlength="32" required>
                         <small class="form-help">Máximo 32 caracteres</small>
                     </div>
                     <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" data-close="editSSIDModal">Cancelar</button>
+                        <button type="button" onclick="closeModal('editSSIDModal')" class="btn btn-secondary">
+                            Cancelar
+                        </button>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save"></i> Guardar SSID
                         </button>
@@ -140,42 +207,41 @@
         </div>
     </div>
 
-    <!-- Edit Password Modal -->
+    <!-- Modal para editar contraseña -->
     <div id="editPasswordModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-key"></i> Editar Contraseña WiFi</h2>
-                <span class="close" data-modal="editPasswordModal">&times;</span>
+                <h2>Cambiar Contraseña WiFi</h2>
+                <button class="close" onclick="closeModal('editPasswordModal')">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
                 <form id="editPasswordForm">
                     <div class="form-group">
-                        <label for="networkSSID">Red WiFi:</label>
+                        <label>Red:</label>
                         <input type="text" id="networkSSID" readonly>
                     </div>
                     <div class="form-group">
-                        <label for="currentPassword">Contraseña Actual:</label>
-                        <div class="password-input">
-                            <input type="password" id="currentPassword" readonly>
-                            <button type="button" class="password-toggle" data-target="currentPassword">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
+                        <label>Contraseña Actual:</label>
+                        <input type="password" id="currentPassword" readonly>
                     </div>
                     <div class="form-group">
-                        <label for="newPassword">Nueva Contraseña:</label>
+                        <label>Nueva Contraseña:</label>
                         <div class="password-input">
-                            <input type="password" id="newPassword" placeholder="Ingrese la nueva contraseña" maxlength="63">
-                            <button type="button" class="password-toggle" data-target="newPassword">
+                            <input type="password" id="newPassword" minlength="8" maxlength="63">
+                            <button type="button" class="password-toggle" onclick="togglePasswordInput('newPassword')">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
-                        <small class="form-help">Mínimo 8 caracteres, máximo 63. Deje vacío para red abierta.</small>
+                        <small class="form-help">8-63 caracteres. Deja vacío para red abierta.</small>
                     </div>
                     <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" data-close="editPasswordModal">Cancelar</button>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Guardar Contraseña
+                        <button type="button" onclick="closeModal('editPasswordModal')" class="btn btn-secondary">
+                            Cancelar
+                        </button>
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fas fa-key"></i> Guardar Contraseña
                         </button>
                     </div>
                 </form>
@@ -183,18 +249,25 @@
         </div>
     </div>
 
-    <!-- Confirmation Modal -->
+    <!-- Modal de confirmación -->
     <div id="confirmModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-exclamation-triangle"></i> Confirmar Cambio</h2>
-                <span class="close" data-modal="confirmModal">&times;</span>
+                <h2>Confirmar Acción</h2>
+                <button class="close" onclick="closeModal('confirmModal')">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
-                <p id="confirmMessage">¿Está seguro de que desea realizar este cambio?</p>
+                <div class="confirm-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p id="confirmMessage">¿Está seguro de realizar esta acción?</p>
+                </div>
                 <div class="form-actions">
-                    <button type="button" class="btn btn-secondary" data-close="confirmModal">Cancelar</button>
-                    <button type="button" id="confirmAction" class="btn btn-danger">
+                    <button onclick="closeModal('confirmModal')" class="btn btn-secondary">
+                        Cancelar
+                    </button>
+                    <button id="confirmAction" class="btn btn-danger">
                         <i class="fas fa-check"></i> Confirmar
                     </button>
                 </div>
@@ -202,8 +275,8 @@
         </div>
     </div>
 
-    <!-- Notification Container -->
-    <div id="notificationContainer"></div>
+    <!-- Container para notificaciones -->
+    <div id="notificationContainer" class="notification-container"></div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>

@@ -1,0 +1,433 @@
+{
+  "timestamp": "2025-08-30 19:05:42",
+  "total_devices": 15,
+  "genieacs_url": "http://192.168.0.237:7557",
+  "devices": [
+    {
+      "serial_number": "E4842B-ONT-2GF-V-RFW-12345E4842B31F8B1",
+      "product_class": "ONT-2GF-V-RFW",
+      "software_version": "V3.2.01-220922",
+      "hardware_version": "V1.3",
+      "ip": "10.10.8.41",
+      "mac": "e4:84:2b:31:f8:ba",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet_F8B1_5G",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet_F8B1",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "80F7A6-HG114AT-XPONA6F942FD",
+      "product_class": "HG114AT",
+      "software_version": "V3.2.18",
+      "hardware_version": "R770.1A",
+      "ip": "10.60.255.254",
+      "mac": "80:f7:a6:f9:42:ff",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet_f942fd_5g",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet_f942fd",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "787264-ONT-2GF-V-RFDW-12345787264C33BEE",
+      "product_class": "ONT-2GF-V-RFDW",
+      "software_version": "V2.0.04-210514",
+      "hardware_version": "V1.0",
+      "ip": "10.10.8.158",
+      "mac": "78:72:64:c3:3b:f7",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet_3BEE_5G",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet_3BEE",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "787264-ONT-2GF-V-RFDW-12345787264C8D01E",
+      "product_class": "ONT-2GF-V-RFDW",
+      "software_version": "V2.0.05-220419",
+      "hardware_version": "V1.1",
+      "ip": "10.60.210.97",
+      "mac": "78:72:64:c8:d0:27",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Hogar-5G",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Hogar",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "F83451-ONT-2GF-V-RFDW-12345F834510817A0",
+      "product_class": "ONT-2GF-V-RFDW",
+      "software_version": "V2.0.06-231005",
+      "hardware_version": "V1.1",
+      "ip": "10.60.239.18",
+      "mac": "f8:34:51:08:17:a9",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet_5G_102006",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet_2.4G_102006",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "E4842B-ONT-2GF-V-RFW-12345E4842B2DA7B0",
+      "product_class": "ONT-2GF-V-RFW",
+      "software_version": "V3.2.01-220922",
+      "hardware_version": "V1.3C",
+      "ip": "10.60.255.242",
+      "mac": "e4:84:2b:2d:a7:b9",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet_A7B0_5G",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet_A7B0",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "94026B-IGD-4F505449349A4125",
+      "product_class": "IGD",
+      "software_version": "V13.1.19",
+      "hardware_version": "V2.0.0.02.0",
+      "ip": "10.20.0.109",
+      "mac": "94:02:6b:9a:41:27",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Informática_5G",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Informática",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "94026B-IGD-4F50544926615935",
+      "product_class": "IGD",
+      "software_version": "V15.2.3",
+      "hardware_version": "RTL960x",
+      "ip": "10.30.10.27",
+      "mac": "94:02:6b:b5:79:1f",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Informática",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "CTC-1111",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "E4842B-IGD-000000000002",
+      "product_class": "IGD",
+      "software_version": "V3.3.0",
+      "hardware_version": "RTL960x",
+      "ip": "",
+      "mac": "",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet-81174",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        }
+      ]
+    },
+    {
+      "serial_number": "E4842B-ONT-4GE-V-USB-RFDW-12345E4842B321E31",
+      "product_class": "ONT-4GE-V-USB-RFDW",
+      "software_version": "V3.2.01-231010",
+      "hardware_version": "V1.3",
+      "ip": "10.10.4.25",
+      "mac": "e4:84:2b:32:1e:3a",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet_1E31_5G",
+          "password": "******",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet-105631-2.4",
+          "password": "******",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "94026B-IGD-4F5054494304B3D8",
+      "product_class": "IGD",
+      "software_version": "V12.2.34",
+      "hardware_version": "2.0.0.02.0",
+      "ip": "10.20.12.18",
+      "mac": "dc:54:ad:04:b3:e3",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet-04B3D8-5G",
+          "password": "3787823736",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet-04B3D8",
+          "password": "3787823736",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "94026B-IGD-4F505449359A66BD",
+      "product_class": "IGD",
+      "software_version": "-1.2.0.12",
+      "hardware_version": "V2.0.0.02.0",
+      "ip": "10.40.3.127",
+      "mac": "94:02:6b:9a:66:c8",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet-9A66BD-5G",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet-9A66BD",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.6.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "A4F33B-F6600R-ZTE0QLYP2400032",
+      "product_class": "F6600R",
+      "software_version": "V9.0.10P1N50",
+      "hardware_version": "V9.0.11",
+      "ip": "10.20.6.103",
+      "mac": "a4:f3:3b:1a:64:86",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet_ZTE_2.4",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet_ZTE",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "505B1D-HG114XT30-XPON1DBC4DCB",
+      "product_class": "HG114XT30",
+      "software_version": "V3.2.20_P803001",
+      "hardware_version": "R880.1A",
+      "ip": "100.64.0.10",
+      "mac": "50:5b:1d:bc:4d:cc",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "Fastnet_bc4dcb",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "Fastnet_bc4dcb",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    },
+    {
+      "serial_number": "648505-F6600R-ZTEEQLYR1800197",
+      "product_class": "F6600R",
+      "software_version": "V9.0.10P1N57",
+      "hardware_version": "V9.0.11",
+      "ip": "10.60.210.16",
+      "mac": "64:85:05:9c:69:0d",
+      "last_inform": "",
+      "wifi_networks": [
+        {
+          "band": "2.4GHz",
+          "ssid": "ZTE_2.4G_bFPZkf",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey",
+          "is_primary": true
+        },
+        {
+          "band": "5GHz",
+          "ssid": "ZTE_5G_bFPZkf",
+          "password": "",
+          "ssid_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.SSID",
+          "password_parameter": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.KeyPassphrase",
+          "password_parameter_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.5.PreSharedKey",
+          "is_primary": false
+        }
+      ]
+    }
+  ]
+}
