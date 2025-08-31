@@ -17,6 +17,9 @@
                     <p>Gestión profesional de redes WiFi</p>
                 </div>
                 <div class="header-right">
+                    <button id="commitBtn" class="btn btn-warning" title="Hacer commit de tareas pendientes en GenieACS">
+                        <i class="fas fa-check-double"></i> Commit Tasks
+                    </button>
                     <button id="reloadBtn" class="btn btn-primary">
                         <i class="fas fa-sync-alt"></i> Recargar
                     </button>
@@ -86,26 +89,26 @@
             <div class="results-header">
                 <h3>Dispositivos WiFi: <span id="resultsCount">0</span></h3>
             </div>
-
+            
             <!-- Loading State -->
             <div id="loadingState" class="state-container">
                 <i class="fas fa-spinner fa-spin"></i>
                 <p>Cargando dispositivos...</p>
             </div>
-
+            
             <!-- Error State -->
             <div id="errorState" class="state-container" style="display: none;">
                 <i class="fas fa-exclamation-triangle"></i>
                 <p>Error al cargar los datos</p>
                 <button onclick="loadDevices()" class="btn btn-primary">Reintentar</button>
             </div>
-
+            
             <!-- Empty State -->
             <div id="emptyState" class="state-container" style="display: none;">
                 <i class="fas fa-search"></i>
                 <p>No se encontraron dispositivos</p>
             </div>
-
+            
             <!-- Devices Grid -->
             <div id="devicesGrid" class="devices-grid" style="display: none;">
                 <!-- Los dispositivos se cargarán aquí dinámicamente -->

@@ -16,15 +16,15 @@ async function initializeApp() {
     try {
         // Configurar event listeners
         setupEventListeners();
-
+        
         // Cargar datos iniciales
         await Promise.all([
             loadStatistics(),
             loadDevices()
         ]);
-
+        
         showSuccess();
-
+        
     } catch (error) {
         console.error('Error inicializando app:', error);
         showError();
@@ -35,48 +35,49 @@ function setupEventListeners() {
     // Búsqueda
     const searchInput = document.getElementById('searchInput');
     const clearBtn = document.getElementById('clearBtn');
-
+    
     searchInput.addEventListener('input', handleSearch);
     searchInput.addEventListener('keyup', function(e) {
         clearBtn.classList.toggle('visible', e.target.value.length > 0);
     });
     clearBtn.addEventListener('click', clearSearch);
-
-    // Botón recargar
+    
+    // Botones de header
     document.getElementById('reloadBtn').addEventListener('click', reloadData);
-
+    document.getElementById('commitBtn').addEventListener('click', commitTasks);
+    
     // Formularios
     document.getElementById('editSSIDForm').addEventListener('submit', handleSSIDSubmit);
     document.getElementById('editPasswordForm').addEventListener('submit', handlePasswordSubmit);
-
+    
     // Confirmación
     document.getElementById('confirmAction').addEventListener('click', executeConfirmedAction);
-
+    
     // Toggle contraseña en modal de detalles
     document.getElementById('modalPasswordToggle').addEventListener('click', function() {
         togglePasswordVisibility('modalPassword', this);
     });
-
+    
     // Botones del modal de detalles
     document.getElementById('editSSIDBtn').addEventListener('click', function() {
         if (currentNetwork) {
             openEditSSIDModal();
         }
     });
-
+    
     document.getElementById('editPasswordBtn').addEventListener('click', function() {
         if (currentNetwork) {
             openEditPasswordModal();
         }
     });
-
+    
     // Cerrar modales con ESC
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             closeAllModals();
         }
     });
-
+    
     // Cerrar modales al hacer click fuera
     window.addEventListener('click', function(e) {
         if (e.target.classList.contains('modal')) {
@@ -90,7 +91,7 @@ async function loadStatistics() {
     try {
         const response = await fetch(`${API_BASE}/statistics`);
         const data = await response.json();
-
+        
         if (data.success) {
             updateStatistics(data.statistics);
         }
@@ -101,11 +102,11 @@ async function loadStatistics() {
 
 async function loadDevices() {
     showLoading();
-
+    
     try {
         const response = await fetch(`${API_BASE}/devices`);
         const data = await response.json();
-
+        
         if (data.success) {
             devices = data.devices;
             renderDevices(devices);
@@ -121,11 +122,11 @@ async function loadDevices() {
 
 async function handleSearch(e) {
     const query = e.target.value.trim();
-
+    
     try {
         const response = await fetch(`${API_BASE}/search?serial=${encodeURIComponent(query)}`);
         const data = await response.json();
-
+        
         if (data.success) {
             renderDevices(data.devices);
         }
@@ -138,7 +139,7 @@ async function handleSearch(e) {
 function clearSearch() {
     const searchInput = document.getElementById('searchInput');
     const clearBtn = document.getElementById('clearBtn');
-
+    
     searchInput.value = '';
     clearBtn.classList.remove('visible');
     renderDevices(devices);
@@ -147,10 +148,10 @@ function clearSearch() {
 async function reloadData() {
     const reloadBtn = document.getElementById('reloadBtn');
     const originalText = reloadBtn.innerHTML;
-
+    
     reloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recargando...';
     reloadBtn.disabled = true;
-
+    
     try {
         await Promise.all([
             loadStatistics(),
@@ -165,6 +166,37 @@ async function reloadData() {
     }
 }
 
+async function commitTasks() {
+    const commitBtn = document.getElementById('commitBtn');
+    const originalText = commitBtn.innerHTML;
+    
+    commitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+    commitBtn.disabled = true;
+    
+    try {
+        const response = await fetch(`${API_BASE}/commit-tasks`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('✅ Tareas aplicadas a GenieACS exitosamente', 'success');
+        } else {
+            showNotification(`❌ Error en commit: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        showNotification('❌ Error de conexión al hacer commit', 'error');
+        console.error('Error en commit:', error);
+    } finally {
+        commitBtn.innerHTML = originalText;
+        commitBtn.disabled = false;
+    }
+}
+
 // Funciones de renderizado
 function updateStatistics(stats) {
     document.getElementById('totalDevices').textContent = stats.total_devices || '0';
@@ -176,18 +208,18 @@ function updateStatistics(stats) {
 function renderDevices(devicesList) {
     const resultsCount = document.getElementById('resultsCount');
     const devicesGrid = document.getElementById('devicesGrid');
-
+    
     resultsCount.textContent = devicesList.length;
-
+    
     if (devicesList.length === 0) {
         showEmpty();
         return;
     }
-
+    
     devicesGrid.innerHTML = '';
     devicesGrid.style.display = 'grid';
     hideStates();
-
+    
     devicesList.forEach((device, index) => {
         const deviceCard = createDeviceCard(device, index);
         devicesGrid.appendChild(deviceCard);
@@ -198,11 +230,11 @@ function createDeviceCard(device, index) {
     const card = document.createElement('div');
     card.className = 'device-card slide-up';
     card.style.animationDelay = `${index * 0.1}s`;
-
+    
     const serialNumber = truncateText(device.serial_number || 'N/A', 25);
     const productClass = device.product_class || 'Dispositivo';
     const wifiNetworks = device.wifi_networks || [];
-
+    
     card.innerHTML = `
         <div class="device-header">
             <div class="device-icon">
@@ -213,19 +245,19 @@ function createDeviceCard(device, index) {
                 <div class="device-serial">${serialNumber}</div>
             </div>
         </div>
-
+        
         <div class="wifi-networks">
             ${wifiNetworks.map(network => createNetworkHTML(device, network)).join('')}
         </div>
     `;
-
+    
     return card;
 }
 
 function createNetworkHTML(device, network) {
     const bandClass = network.band === '5GHz' ? 'band-5' : 'band-2-4';
     const primaryIcon = network.is_primary ? '<i class="fas fa-star" title="Red principal"></i>' : '';
-
+    
     return `
         <div class="wifi-network" onclick="showNetworkDetails('${device.serial_number}', '${network.band}')">
             <div class="network-header">
@@ -262,7 +294,7 @@ function maskPassword(password) {
 function toggleNetworkPassword(button, password) {
     const passwordElement = button.parentElement.querySelector('.password-value');
     const icon = button.querySelector('i');
-
+    
     if (passwordElement.textContent.includes('●')) {
         passwordElement.textContent = password || 'Sin contraseña';
         icon.className = 'fas fa-eye-slash';
@@ -277,15 +309,15 @@ function showNetworkDetails(deviceSerial, networkBand) {
     // Buscar dispositivo
     const device = devices.find(d => d.serial_number === deviceSerial);
     if (!device) return;
-
+    
     // Buscar red específica
     const network = device.wifi_networks.find(n => n.band === networkBand);
     if (!network) return;
-
+    
     // Guardar referencias globales
     currentDevice = device;
     currentNetwork = network;
-
+    
     // Llenar modal con información
     document.getElementById('modalTitle').textContent = `Red ${network.band} - ${network.ssid}`;
     document.getElementById('modalBand').textContent = network.band;
@@ -296,12 +328,12 @@ function showNetworkDetails(deviceSerial, networkBand) {
     document.getElementById('modalIP').textContent = device.ip || 'N/A';
     document.getElementById('modalMAC').textContent = device.mac || 'N/A';
     document.getElementById('modalLastInform').textContent = device.last_inform || 'N/A';
-
+    
     // Resetear toggle de contraseña
     const toggle = document.getElementById('modalPasswordToggle');
     const passwordSpan = document.getElementById('modalPassword');
     const icon = toggle.querySelector('i');
-
+    
     if (network.password) {
         passwordSpan.textContent = maskPassword(network.password);
         icon.className = 'fas fa-eye';
@@ -309,19 +341,19 @@ function showNetworkDetails(deviceSerial, networkBand) {
     } else {
         toggle.style.display = 'none';
     }
-
+    
     openModal('networkDetailsModal');
 }
 
 function openEditSSIDModal() {
     if (!currentNetwork) return;
-
+    
     document.getElementById('currentSSID').value = currentNetwork.ssid || '';
     document.getElementById('newSSID').value = currentNetwork.ssid || '';
-
+    
     closeModal('networkDetailsModal');
     openModal('editSSIDModal');
-
+    
     // Enfocar y seleccionar el input
     setTimeout(() => {
         const input = document.getElementById('newSSID');
@@ -332,14 +364,14 @@ function openEditSSIDModal() {
 
 function openEditPasswordModal() {
     if (!currentNetwork) return;
-
+    
     document.getElementById('networkSSID').value = `${currentNetwork.band} - ${currentNetwork.ssid}`;
     document.getElementById('currentPassword').value = currentNetwork.password || '';
     document.getElementById('newPassword').value = currentNetwork.password || '';
-
+    
     closeModal('networkDetailsModal');
     openModal('editPasswordModal');
-
+    
     // Enfocar el input
     setTimeout(() => {
         document.getElementById('newPassword').focus();
@@ -348,26 +380,29 @@ function openEditPasswordModal() {
 
 async function handleSSIDSubmit(e) {
     e.preventDefault();
-
+    
     const newSSID = document.getElementById('newSSID').value.trim();
-
+    
     if (!newSSID) {
         showNotification('El SSID no puede estar vacío', 'error');
         return;
     }
-
+    
     if (newSSID.length > 32) {
         showNotification('El SSID no puede tener más de 32 caracteres', 'error');
         return;
     }
-
+    
     if (newSSID === currentNetwork.ssid) {
         closeModal('editSSIDModal');
         return;
     }
-
+    
     // Confirmar cambio
-    const message = `¿Confirmar cambio de SSID a "${newSSID}"?\nEsto puede desconectar dispositivos conectados.`;
+    const message = `¿Confirmar cambio de SSID a "${newSSID}"?
+Esto puede desconectar dispositivos conectados.
+
+⚠️ Recuerda hacer COMMIT después del cambio.`;
     showConfirmModal(message, async () => {
         await updateSSID(newSSID);
     });
@@ -375,24 +410,30 @@ async function handleSSIDSubmit(e) {
 
 async function handlePasswordSubmit(e) {
     e.preventDefault();
-
+    
     const newPassword = document.getElementById('newPassword').value.trim();
-
+    
     if (newPassword && (newPassword.length < 8 || newPassword.length > 63)) {
         showNotification('La contraseña debe tener entre 8 y 63 caracteres', 'error');
         return;
     }
-
+    
     if (newPassword === currentNetwork.password) {
         closeModal('editPasswordModal');
         return;
     }
-
+    
     // Confirmar cambio
     const message = newPassword 
-        ? `¿Confirmar cambio de contraseña WiFi?\nEsto desconectará todos los dispositivos conectados.`
-        : `¿Confirmar eliminación de contraseña?\nLa red quedará abierta y sin seguridad.`;
+        ? `¿Confirmar cambio de contraseña WiFi?
+Esto desconectará todos los dispositivos conectados.
 
+⚠️ Recuerda hacer COMMIT después del cambio.`
+        : `¿Confirmar eliminación de contraseña?
+La red quedará abierta y sin seguridad.
+
+⚠️ Recuerda hacer COMMIT después del cambio.`;
+    
     showConfirmModal(message, async () => {
         await updatePassword(newPassword);
     });
@@ -400,6 +441,8 @@ async function handlePasswordSubmit(e) {
 
 async function updateSSID(newSSID) {
     try {
+        showNotification('🔄 Enviando cambio de SSID a GenieACS...', 'info');
+        
         const response = await fetch(`${API_BASE}/device/${currentDevice.serial_number}/wifi/${currentNetwork.band}/ssid`, {
             method: 'PUT',
             headers: {
@@ -407,27 +450,29 @@ async function updateSSID(newSSID) {
             },
             body: JSON.stringify({ ssid: newSSID })
         });
-
+        
         const result = await response.json();
-
+        
         if (result.success) {
-            showNotification(`SSID actualizado correctamente a "${newSSID}"`, 'success');
+            showNotification(`✅ SSID actualizado: "${newSSID}". ${result.message}`, 'success');
             closeModal('editSSIDModal');
-
+            
             // Actualizar datos locales
             currentNetwork.ssid = newSSID;
             await loadDevices(); // Recargar para mostrar cambios
         } else {
-            showNotification(`Error: ${result.message}`, 'error');
+            showNotification(`❌ Error: ${result.message}`, 'error');
         }
     } catch (error) {
-        showNotification('Error de conexión al actualizar SSID', 'error');
+        showNotification('❌ Error de conexión al actualizar SSID', 'error');
         console.error('Error actualizando SSID:', error);
     }
 }
 
 async function updatePassword(newPassword) {
     try {
+        showNotification('🔄 Enviando cambio de contraseña a GenieACS...', 'info');
+        
         const response = await fetch(`${API_BASE}/device/${currentDevice.serial_number}/wifi/${currentNetwork.band}/password`, {
             method: 'PUT',
             headers: {
@@ -435,24 +480,24 @@ async function updatePassword(newPassword) {
             },
             body: JSON.stringify({ password: newPassword })
         });
-
+        
         const result = await response.json();
-
+        
         if (result.success) {
             const message = newPassword 
-                ? 'Contraseña WiFi actualizada correctamente'
-                : 'Contraseña WiFi eliminada - Red abierta';
+                ? `✅ Contraseña actualizada. ${result.message}`
+                : `✅ Contraseña eliminada - Red abierta. ${result.message}`;
             showNotification(message, 'success');
             closeModal('editPasswordModal');
-
+            
             // Actualizar datos locales
             currentNetwork.password = newPassword;
             await loadDevices(); // Recargar para mostrar cambios
         } else {
-            showNotification(`Error: ${result.message}`, 'error');
+            showNotification(`❌ Error: ${result.message}`, 'error');
         }
     } catch (error) {
-        showNotification('Error de conexión al actualizar contraseña', 'error');
+        showNotification('❌ Error de conexión al actualizar contraseña', 'error');
         console.error('Error actualizando contraseña:', error);
     }
 }
@@ -522,9 +567,9 @@ function executeConfirmedAction() {
 function togglePasswordVisibility(elementId, button) {
     const element = document.getElementById(elementId);
     const icon = button.querySelector('i');
-
+    
     if (!currentNetwork || !currentNetwork.password) return;
-
+    
     if (element.textContent.includes('●')) {
         element.textContent = currentNetwork.password;
         icon.className = 'fas fa-eye-slash';
@@ -538,7 +583,7 @@ function togglePasswordInput(inputId) {
     const input = document.getElementById(inputId);
     const button = input.parentElement.querySelector('.password-toggle');
     const icon = button.querySelector('i');
-
+    
     if (input.type === 'password') {
         input.type = 'text';
         icon.className = 'fas fa-eye-slash';
@@ -548,14 +593,14 @@ function togglePasswordInput(inputId) {
     }
 }
 
-// Sistema de notificaciones
+// Sistema de notificaciones mejorado
 function showNotification(message, type = 'info') {
     const container = document.getElementById('notificationContainer');
     const notification = document.createElement('div');
-
+    
     let icon = 'fa-info-circle';
     let title = 'Información';
-
+    
     switch (type) {
         case 'success':
             icon = 'fa-check-circle';
@@ -570,7 +615,7 @@ function showNotification(message, type = 'info') {
             title = 'Advertencia';
             break;
     }
-
+    
     notification.className = `notification ${type}`;
     notification.innerHTML = `
         <i class="fas ${icon}"></i>
@@ -578,17 +623,21 @@ function showNotification(message, type = 'info') {
             <div class="notification-title">${title}</div>
             <div class="notification-message">${message}</div>
         </div>
+        <button class="notification-close" onclick="this.parentElement.remove()">
+            <i class="fas fa-times"></i>
+        </button>
     `;
-
+    
     container.appendChild(notification);
-
-    // Auto eliminar después de 5 segundos
+    
+    // Auto eliminar después de 10 segundos para mensajes de éxito, 8 para otros
+    const autoRemoveTime = type === 'success' ? 10000 : 8000;
     setTimeout(() => {
         if (notification.parentNode) {
             notification.parentNode.removeChild(notification);
         }
-    }, 5000);
-
+    }, autoRemoveTime);
+    
     // Permitir cerrar al hacer click
     notification.addEventListener('click', () => {
         if (notification.parentNode) {
