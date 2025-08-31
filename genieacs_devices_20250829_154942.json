@@ -1,6 +1,6 @@
 {
-  "timestamp": "2025-08-29 13:47:52",
-  "total_devices": 14,
+  "timestamp": "2025-08-29 15:49:42",
+  "total_devices": 15,
   "genieacs_url": "http://192.168.0.237:7557",
   "devices": [
     {
@@ -258,6 +258,23 @@
       "last_inform": "",
       "connection_url": "http://100.64.0.12:7547/tr069",
       "mac_address": "50:5b:1d:bc:4d:cc",
+      "tags": []
+    },
+    {
+      "serial_number": "648505-F6600R-ZTEEQLYR1800197",
+      "product_class": "F6600R",
+      "software_version": "V9.0.10P1N57",
+      "hardware_version": "V9.0.11",
+      "manufacturer": "",
+      "model_name": "",
+      "ip": "10.60.210.16",
+      "ssid": [
+        "ZTE_2.4G_bFPZkf",
+        "SSID2"
+      ],
+      "last_inform": "",
+      "connection_url": "http://10.60.210.16:58000/b622c1f46e6a6ef0bd9b235d1cf50a61",
+      "mac_address": "64:85:05:9c:69:0d",
       "tags": []
     }
   ]

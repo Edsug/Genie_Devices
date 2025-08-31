@@ -1,4 +1,3 @@
-
 import requests
 import json
 from urllib.parse import unquote
@@ -26,30 +25,29 @@ def safe_get_nested_value(data, path, default=""):
             else:
                 return default
 
-        # Si llegamos aquí y current es un dict con _value, devolverlo
         if isinstance(current, dict) and '_value' in current:
-            return str(current['_value'])  # Asegurar que siempre sea string
+            return str(current['_value'])
         elif isinstance(current, dict):
-            return default  # Si es dict pero no tiene _value, devolver default
+            return default
         return str(current) if current is not None else default
     except (KeyError, TypeError):
         return default
 
-def clean_and_filter_ssids(ssid_list):
-    """Limpiar y filtrar SSIDs para mostrar solo los principales y útiles"""
-    if not ssid_list or not isinstance(ssid_list, list):
+def clean_and_filter_ssids_with_passwords(wlan_configs):
+    """Extraer y limpiar SSIDs con sus contraseñas correspondientes"""
+    if not wlan_configs or not isinstance(wlan_configs, dict):
         return []
 
-    # Patrones para identificar SSIDs principales vs secundarios/prueba
+    # Patrones para identificar SSIDs principales
     main_patterns = [
-        r'^[A-Za-z].*[0-9].*$',  # Contiene letras y números (ej: Fastnet_F8B1_5G)
+        r'^[A-Za-z].*[0-9].*$',  # Contiene letras y números
         r'^[A-Za-z]{4,}.*$',     # Al menos 4 letras al inicio
         r'^FTTH.*$',             # Redes FTTH
         r'^.*WiFi.*$',           # Contiene WiFi
         r'^.*Net.*$'             # Contiene Net
     ]
 
-    # Patrones para filtrar SSIDs no deseados
+    # Patrones para excluir
     exclude_patterns = [
         r'^AP-[0-9]+$',          # AP-1, AP-2, etc.
         r'^Test.*$',             # Redes de prueba
@@ -59,47 +57,71 @@ def clean_and_filter_ssids(ssid_list):
         r'^[0-9]+$'              # Solo números
     ]
 
-    cleaned_ssids = []
+    wifi_networks = []
     seen_ssids = set()
 
-    # Primera pasada: recopilar y limpiar SSIDs
-    for ssid in ssid_list:
-        ssid_clean = str(ssid).strip()
-        if not ssid_clean or ssid_clean in seen_ssids:
+    for wlan_key, wlan_config in wlan_configs.items():
+        if not isinstance(wlan_config, dict):
+            continue
+
+        # Extraer SSID
+        ssid = safe_get_nested_value(wlan_config, ['SSID'], "")
+        if not ssid or ssid in seen_ssids:
             continue
 
         # Verificar si debe ser excluido
-        should_exclude = any(re.match(pattern, ssid_clean, re.IGNORECASE) 
+        should_exclude = any(re.match(pattern, ssid, re.IGNORECASE) 
                            for pattern in exclude_patterns)
+        if should_exclude:
+            continue
 
-        if not should_exclude:
-            cleaned_ssids.append(ssid_clean)
-            seen_ssids.add(ssid_clean)
+        # Extraer contraseña (varios campos posibles)
+        password = ""
 
-    # Segunda pasada: priorizar SSIDs principales
-    priority_ssids = []
-    other_ssids = []
+        # Intentar KeyPassphrase primero
+        password = safe_get_nested_value(wlan_config, ['KeyPassphrase'], "")
 
-    for ssid in cleaned_ssids:
+        # Si no hay KeyPassphrase, intentar PreSharedKey
+        if not password:
+            # PreSharedKey puede ser un objeto complejo
+            psk_obj = wlan_config.get('PreSharedKey', {})
+            if isinstance(psk_obj, dict):
+                # Buscar dentro del objeto PreSharedKey
+                for psk_key, psk_value in psk_obj.items():
+                    if isinstance(psk_value, dict) and '_value' in psk_value:
+                        password = str(psk_value['_value'])
+                        break
+
+        # Extraer información adicional de seguridad
+        auth_mode = safe_get_nested_value(wlan_config, ['WPAAuthenticationMode'], "")
+        encryption_mode = safe_get_nested_value(wlan_config, ['WPAEncryptionModes'], "")
+        enabled = safe_get_nested_value(wlan_config, ['Enable'], "")
+
+        # Determinar si es red principal
         is_main = any(re.match(pattern, ssid, re.IGNORECASE) 
                      for pattern in main_patterns)
 
-        if is_main:
-            priority_ssids.append(ssid)
-        else:
-            other_ssids.append(ssid)
+        wifi_network = {
+            'wlan_id': wlan_key,
+            'ssid': ssid,
+            'password': password,
+            'auth_mode': auth_mode,
+            'encryption_mode': encryption_mode,
+            'enabled': enabled,
+            'is_main': is_main
+        }
 
-    # Combinar: máximo 2 SSIDs, priorizando los principales
-    final_ssids = priority_ssids[:2]
-    if len(final_ssids) < 2:
-        remaining_slots = 2 - len(final_ssids)
-        final_ssids.extend(other_ssids[:remaining_slots])
+        wifi_networks.append(wifi_network)
+        seen_ssids.add(ssid)
 
-    return final_ssids
+    # Ordenar: principales primero, luego otros
+    wifi_networks.sort(key=lambda x: (not x['is_main'], x['ssid']))
+
+    # Retornar máximo 4 redes (2 principales + 2 secundarias)
+    return wifi_networks[:4]
 
 def extract_interface_data(device):
     """Extraer datos específicos del dispositivo desde GenieACS"""
-    # Serial number (ID del dispositivo decodificado)
     serial_number = unquote(device.get("_id", ""))
 
     device_data = {
@@ -110,20 +132,19 @@ def extract_interface_data(device):
         "manufacturer": "",
         "model_name": "",
         "ip": "",
-        "ssid": [],  # Lista para múltiples SSIDs
+        "wifi_networks": [],  # Lista de redes WiFi con contraseñas
         "last_inform": "",
         "connection_url": "",
         "mac_address": "",
         "tags": []
     }
 
-    # Acceder a InternetGatewayDevice si existe
+    # Acceder a InternetGatewayDevice
     igw = device.get('InternetGatewayDevice', {})
 
     if igw:
         # DeviceInfo
         device_info = igw.get('DeviceInfo', {})
-
         device_data["product_class"] = safe_get_nested_value(device_info, ['ProductClass'], "")
         device_data["software_version"] = safe_get_nested_value(device_info, ['SoftwareVersion'], "")  
         device_data["hardware_version"] = safe_get_nested_value(device_info, ['HardwareVersion'], "")
@@ -144,37 +165,29 @@ def extract_interface_data(device):
                                 if ip_addr and ip_addr != "0.0.0.0" and not device_data["ip"]:
                                     device_data["ip"] = ip_addr
 
-                                # También obtener MAC Address
                                 if not device_data["mac_address"]:
                                     mac_addr = safe_get_nested_value(ip_conn, ['MACAddress'], "")
                                     if mac_addr:
                                         device_data["mac_address"] = mac_addr
 
-        # SSIDs desde LANDevice -> WLANConfiguration
+        # Redes WiFi con contraseñas desde LANDevice -> WLANConfiguration
         lan_devices = igw.get('LANDevice', {})
-        raw_ssids = []
         for lan_key, lan_device in lan_devices.items():
             if isinstance(lan_device, dict):
                 wlan_configs = lan_device.get('WLANConfiguration', {})
-                for wlan_key, wlan_config in wlan_configs.items():
-                    if isinstance(wlan_config, dict):
-                        ssid = safe_get_nested_value(wlan_config, ['SSID'], "")
-                        if ssid and ssid.strip():
-                            raw_ssids.append(ssid)
+                if wlan_configs:
+                    device_data["wifi_networks"] = clean_and_filter_ssids_with_passwords(wlan_configs)
+                    break  # Solo procesar el primer LANDevice que tenga WLANConfiguration
 
-        # Limpiar y filtrar SSIDs
-        device_data["ssid"] = clean_and_filter_ssids(raw_ssids)
-
-        # Connection Request URL desde ManagementServer
+        # Connection Request URL
         mgmt_server = igw.get('ManagementServer', {})
         device_data["connection_url"] = safe_get_nested_value(mgmt_server, ['ConnectionRequestURL'], "")
 
-    # Last inform (timestamp)
+    # Last inform
     if '_lastInform' in device:
         timestamp = device['_lastInform']
         if isinstance(timestamp, (int, float)) and timestamp > 0:
             try:
-                # GenieACS usa milisegundos
                 dt = datetime.fromtimestamp(timestamp / 1000)
                 device_data["last_inform"] = dt.strftime("%d/%m/%Y, %I:%M:%S %p")
             except:
@@ -188,39 +201,36 @@ def extract_interface_data(device):
         elif isinstance(tags_data, list):
             device_data["tags"] = tags_data
 
-    # Si no se encontró product class en DeviceInfo, intentar extraerlo del deviceId
+    # Product class desde deviceId si no se encontró
     if not device_data["product_class"] and '_deviceId' in device:
         device_id = device['_deviceId']
         if isinstance(device_id, dict) and '_ProductClass' in device_id:
             device_data["product_class"] = str(device_id['_ProductClass'])
 
-    # Asegurar que todos los campos de string sean strings
+    # Asegurar tipos string
     for key, value in device_data.items():
-        if key != 'ssid' and key != 'tags':  # Estos son listas
+        if key not in ['wifi_networks', 'tags']:
             device_data[key] = str(value) if value is not None else ""
 
     return device_data
 
 def save_devices_to_json():
-    """Obtener dispositivos y guardar en JSON con formato de la interfaz"""
+    """Obtener dispositivos y guardar en JSON con WiFi y contraseñas"""
     try:
         print("🔄 Conectando a GenieACS...")
         devices = get_devices()
         print(f"📋 Encontrados {len(devices)} dispositivos")
 
-        # Extraer datos de cada dispositivo
         clean_devices = []
-        unique_serials = set()  # Para evitar duplicados
+        unique_serials = set()
 
         for device in devices:
             device_data = extract_interface_data(device)
 
-            # Solo agregar si no es duplicado
             if device_data["serial_number"] not in unique_serials:
                 unique_serials.add(device_data["serial_number"])
                 clean_devices.append(device_data)
 
-        # Crear estructura final
         output_data = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "total_devices": len(clean_devices),
@@ -228,7 +238,6 @@ def save_devices_to_json():
             "devices": clean_devices
         }
 
-        # Guardar en archivo JSON
         filename = f"genieacs_devices_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
@@ -236,45 +245,49 @@ def save_devices_to_json():
         print(f"✅ Datos guardados en: {filename}")
         print(f"📊 Total de dispositivos únicos: {len(clean_devices)}")
 
-        # Mostrar resumen en consola con manejo seguro de tipos
-        print("\n📱 Resumen de dispositivos:")
-        print("-" * 100)
-        print(f"{'Serial Number':<25} {'Product Class':<20} {'Software Version':<20} {'IP':<15} {'SSIDs Principales':<25}")
-        print("-" * 100)
+        # Mostrar resumen con WiFi y contraseñas
+        print("\n📱 Resumen de dispositivos con WiFi:")
+        print("-" * 120)
+        print(f"{'Serial Number':<25} {'Product Class':<20} {'WiFi Networks':<50} {'Contraseñas':<25}")
+        print("-" * 120)
 
         for device in clean_devices:
-            # Asegurar que todos los valores sean strings
             serial = str(device.get('serial_number', ''))[:24] + "..." if len(str(device.get('serial_number', ''))) > 24 else str(device.get('serial_number', ''))
             product = str(device.get('product_class', ''))[:19] + "..." if len(str(device.get('product_class', ''))) > 19 else str(device.get('product_class', ''))
-            software = str(device.get('software_version', ''))[:19] + "..." if len(str(device.get('software_version', ''))) > 19 else str(device.get('software_version', ''))
-            ip = str(device.get('ip', ''))
 
-            # Manejar SSIDs de forma segura
-            ssid_list = device.get('ssid', [])
-            if isinstance(ssid_list, list) and ssid_list:
-                ssids = ', '.join(str(s) for s in ssid_list)
+            wifi_networks = device.get('wifi_networks', [])
+            if wifi_networks:
+                # Mostrar SSIDs
+                ssids = ', '.join([net['ssid'] for net in wifi_networks[:2]])
+                if len(wifi_networks) > 2:
+                    ssids += f" (+{len(wifi_networks)-2})"
+
+                # Mostrar contraseñas (ocultas por seguridad)
+                passwords = ', '.join([f"{'*' * len(net['password'][:8])}" if net['password'] else 'N/A' for net in wifi_networks[:2]])
             else:
                 ssids = "N/A"
+                passwords = "N/A"
 
-            print(f"{serial:<25} {product:<20} {software:<20} {ip:<15} {ssids:<25}")
+            print(f"{serial:<25} {product:<20} {ssids:<50} {passwords:<25}")
 
-        # Mostrar estadísticas adicionales
-        print("\n📊 Estadísticas:")
-        devices_with_product = sum(1 for d in clean_devices if d.get('product_class'))
-        devices_with_software = sum(1 for d in clean_devices if d.get('software_version'))
-        devices_with_ip = sum(1 for d in clean_devices if d.get('ip'))
-        devices_with_ssid = sum(1 for d in clean_devices if d.get('ssid'))
+        # Estadísticas de WiFi
+        print("\n📊 Estadísticas de WiFi:")
+        devices_with_wifi = sum(1 for d in clean_devices if d.get('wifi_networks'))
+        devices_with_passwords = sum(1 for d in clean_devices if any(net.get('password') for net in d.get('wifi_networks', [])))
 
-        print(f"Dispositivos con Product Class: {devices_with_product}")
-        print(f"Dispositivos con Software Version: {devices_with_software}")
-        print(f"Dispositivos con IP: {devices_with_ip}")
-        print(f"Dispositivos con SSID: {devices_with_ssid}")
+        print(f"Dispositivos con WiFi configurado: {devices_with_wifi}")
+        print(f"Dispositivos con contraseñas WiFi: {devices_with_passwords}")
 
-        # Mostrar ejemplo de SSIDs limpiados
-        print("\n🔧 Ejemplo de limpieza de SSIDs:")
-        for device in clean_devices[:3]:  # Mostrar primeros 3 dispositivos
-            if device.get('ssid'):
-                print(f"  {device.get('serial_number', 'N/A')[:20]}... -> SSIDs: {device['ssid']}")
+        # Mostrar ejemplo detallado de redes WiFi
+        print("\n🔧 Ejemplo detallado de redes WiFi:")
+        for device in clean_devices[:2]:
+            if device.get('wifi_networks'):
+                print(f"\n  📍 {device.get('serial_number', 'N/A')[:30]}...")
+                for i, net in enumerate(device['wifi_networks'][:3]):
+                    print(f"    🌐 Red {i+1}: {net['ssid']}")
+                    print(f"       🔐 Contraseña: {net['password'] if net['password'] else 'Sin contraseña'}")
+                    print(f"       🔒 Seguridad: {net['auth_mode']} / {net['encryption_mode']}")
+                    print(f"       ✅ Estado: {'Activa' if net['enabled'] == 'true' else 'Inactiva'}")
 
         return filename
 
@@ -291,10 +304,9 @@ if __name__ == "__main__":
     filename = save_devices_to_json()
     if filename:
         print(f"\n🎯 Archivo JSON creado exitosamente: {filename}")
-        print("💡 El archivo contiene campos limpios y SSIDs filtrados")
-        print("🌐 Ahora puedes usar la interfaz web ejecutando: python app.py")
+        print("💡 El archivo incluye SSIDs, contraseñas y configuración WiFi completa")
+        print("🌐 Ahora puedes usar la interfaz web para visualizar y editar")
 
-        # Opción para mostrar el contenido del archivo
         show_content = input("\n¿Quieres ver el contenido del archivo JSON? (s/n): ").lower().strip()
         if show_content == 's':
             try:

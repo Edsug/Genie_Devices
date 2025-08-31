@@ -1,9 +1,11 @@
 
-class GenieACSManager {
+class WiFiManager {
     constructor() {
         this.devices = [];
         this.filteredDevices = [];
         this.baseUrl = 'http://localhost:5000/api';
+        this.currentEditDevice = null;
+        this.currentEditNetwork = null;
 
         this.initElements();
         this.bindEvents();
@@ -23,14 +25,32 @@ class GenieACSManager {
 
         // Elementos de estadísticas
         this.totalDevices = document.getElementById('totalDevices');
-        this.devicesWithSoftware = document.getElementById('devicesWithSoftware');
-        this.devicesWithSSID = document.getElementById('devicesWithSSID');
-        this.lastUpdate = document.getElementById('lastUpdate');
+        this.devicesWithWifi = document.getElementById('devicesWithWifi');
+        this.devicesWithPasswords = document.getElementById('devicesWithPasswords');
+        this.totalNetworks = document.getElementById('totalNetworks');
 
-        // Modal
-        this.modal = document.getElementById('deviceModal');
-        this.modalBody = document.getElementById('modalBody');
-        this.closeModal = document.querySelector('.close');
+        // Modales
+        this.editSSIDModal = document.getElementById('editSSIDModal');
+        this.editPasswordModal = document.getElementById('editPasswordModal');
+        this.confirmModal = document.getElementById('confirmModal');
+
+        // Formularios
+        this.editSSIDForm = document.getElementById('editSSIDForm');
+        this.editPasswordForm = document.getElementById('editPasswordForm');
+
+        // Campos de formulario
+        this.currentSSID = document.getElementById('currentSSID');
+        this.newSSID = document.getElementById('newSSID');
+        this.networkSSID = document.getElementById('networkSSID');
+        this.currentPassword = document.getElementById('currentPassword');
+        this.newPassword = document.getElementById('newPassword');
+
+        // Confirmación
+        this.confirmMessage = document.getElementById('confirmMessage');
+        this.confirmAction = document.getElementById('confirmAction');
+
+        // Contenedor de notificaciones
+        this.notificationContainer = document.getElementById('notificationContainer');
     }
 
     bindEvents() {
@@ -50,23 +70,62 @@ class GenieACSManager {
             this.reloadData();
         });
 
-        // Cerrar modal
-        this.closeModal.addEventListener('click', () => {
-            this.modal.style.display = 'none';
+        // Cerrar modales
+        document.querySelectorAll('.close').forEach(closeBtn => {
+            closeBtn.addEventListener('click', (e) => {
+                const modalId = e.target.getAttribute('data-modal');
+                if (modalId) {
+                    this.closeModal(modalId);
+                }
+            });
+        });
+
+        // Cerrar modales con botones
+        document.querySelectorAll('[data-close]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const modalId = e.target.getAttribute('data-close');
+                this.closeModal(modalId);
+            });
         });
 
         // Cerrar modal al hacer click fuera
-        this.modal.addEventListener('click', (e) => {
-            if (e.target === this.modal) {
-                this.modal.style.display = 'none';
+        window.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                e.target.style.display = 'none';
             }
         });
 
         // Cerrar modal con ESC
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this.modal.style.display === 'block') {
-                this.modal.style.display = 'none';
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modal').forEach(modal => {
+                    modal.style.display = 'none';
+                });
             }
+        });
+
+        // Toggle de contraseñas
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('password-toggle') || e.target.parentElement.classList.contains('password-toggle')) {
+                const button = e.target.classList.contains('password-toggle') ? e.target : e.target.parentElement;
+                this.togglePasswordVisibility(button);
+            }
+        });
+
+        // Formularios
+        this.editSSIDForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.submitSSIDChange();
+        });
+
+        this.editPasswordForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.submitPasswordChange();
+        });
+
+        // Confirmación
+        this.confirmAction.addEventListener('click', () => {
+            this.executeConfirmedAction();
         });
     }
 
@@ -101,7 +160,9 @@ class GenieACSManager {
             const data = await response.json();
 
             if (data.success) {
-                this.devices = data.devices;
+                this.devices = data.devices.filter(device => 
+                    device.wifi_networks && device.wifi_networks.length > 0
+                );
                 this.filteredDevices = [...this.devices];
                 this.renderDevices();
                 this.hideLoading();
@@ -126,7 +187,9 @@ class GenieACSManager {
             const data = await response.json();
 
             if (data.success) {
-                this.filteredDevices = data.devices;
+                this.filteredDevices = data.devices.filter(device => 
+                    device.wifi_networks && device.wifi_networks.length > 0
+                );
                 this.renderDevices();
             }
         } catch (error) {
@@ -135,25 +198,18 @@ class GenieACSManager {
     }
 
     async reloadData() {
-        // Mostrar estado de carga en el botón
         const originalText = this.reloadBtn.innerHTML;
         this.reloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recargando...';
         this.reloadBtn.disabled = true;
 
         try {
-            // Recargar datos del servidor
             await fetch(`${this.baseUrl}/reload`);
-
-            // Recargar todo
             await this.loadInitialData();
-
-            // Mostrar mensaje de éxito
-            this.showSuccessMessage('Datos recargados correctamente');
+            this.showNotification('Datos recargados correctamente', 'success');
         } catch (error) {
             console.error('Error reloading data:', error);
             this.showError();
         } finally {
-            // Restaurar botón
             this.reloadBtn.innerHTML = originalText;
             this.reloadBtn.disabled = false;
         }
@@ -161,22 +217,9 @@ class GenieACSManager {
 
     updateStatistics(stats) {
         this.totalDevices.textContent = stats.total_devices || '0';
-        this.devicesWithSoftware.textContent = stats.devices_with_software_version || '0';
-        this.devicesWithSSID.textContent = stats.devices_with_ssid || '0';
-
-        // Formatear fecha
-        if (stats.last_update && stats.last_update !== 'Desconocido') {
-            const date = new Date(stats.last_update);
-            this.lastUpdate.textContent = date.toLocaleString('es-ES', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        } else {
-            this.lastUpdate.textContent = 'Desconocido';
-        }
+        this.devicesWithWifi.textContent = stats.devices_with_wifi || '0';
+        this.devicesWithPasswords.textContent = stats.devices_with_passwords || '0';
+        this.totalNetworks.textContent = stats.total_wifi_networks || '0';
     }
 
     renderDevices() {
@@ -192,160 +235,296 @@ class GenieACSManager {
         this.emptyState.style.display = 'none';
 
         this.filteredDevices.forEach((device, index) => {
-            const deviceCard = this.createDeviceCard(device, index);
+            const deviceCard = this.createDeviceWiFiCard(device, index);
             this.devicesGrid.appendChild(deviceCard);
         });
     }
 
-    createDeviceCard(device, index) {
+    createDeviceWiFiCard(device, index) {
         const card = document.createElement('div');
-        card.className = 'device-card';
+        card.className = 'device-wifi-card';
         card.style.animationDelay = `${index * 0.1}s`;
 
-        // Limpiar datos
-        const serialNumber = this.truncateText(device.serial_number || 'N/A', 25);
-        const productClass = device.product_class || 'N/A';
-        const softwareVersion = device.software_version || 'N/A';
-        const ipAddress = device.ip || 'N/A';
-        const ssids = device.ssid || [];
-        const lastInform = device.last_inform || 'N/A';
+        const serialNumber = this.truncateText(device.serial_number || 'N/A', 30);
+        const productClass = device.product_class || 'Dispositivo WiFi';
+        const wifiNetworks = device.wifi_networks || [];
 
         card.innerHTML = `
             <div class="device-header">
                 <div class="device-icon">
-                    <i class="fas fa-router"></i>
+                    <i class="fas fa-wifi"></i>
                 </div>
                 <div class="device-title">
                     <h4>${productClass}</h4>
-                    <span>Serial: ${serialNumber}</span>
+                    <div class="device-serial">${serialNumber}</div>
                 </div>
             </div>
 
-            <div class="device-info">
-                <div class="info-row">
-                    <span class="info-label">Software:</span>
-                    <span class="info-value">${softwareVersion}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">IP:</span>
-                    <span class="info-value">${ipAddress}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">SSIDs:</span>
-                    <div class="ssid-tags">
-                        ${ssids.length > 0 ? 
-                            ssids.map(ssid => `<span class="ssid-tag">${ssid}</span>`).join('') :
-                            '<span class="info-value">N/A</span>'
-                        }
-                    </div>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Último contacto:</span>
-                    <span class="info-value">${this.truncateText(lastInform, 20)}</span>
-                </div>
+            <div class="wifi-networks">
+                ${wifiNetworks.map((network, netIndex) => this.createNetworkHTML(device, network, netIndex)).join('')}
             </div>
         `;
-
-        // Agregar evento click para mostrar detalles
-        card.addEventListener('click', () => {
-            this.showDeviceDetails(device);
-        });
 
         return card;
     }
 
-    showDeviceDetails(device) {
-        const details = `
-            <div class="detail-section">
-                <h3><i class="fas fa-info-circle"></i> Información General</h3>
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <span class="detail-label">Número de Serie:</span>
-                        <span class="detail-value">${device.serial_number || 'N/A'}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Clase de Producto:</span>
-                        <span class="detail-value">${device.product_class || 'N/A'}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Fabricante:</span>
-                        <span class="detail-value">${device.manufacturer || 'N/A'}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Modelo:</span>
-                        <span class="detail-value">${device.model_name || 'N/A'}</span>
+    createNetworkHTML(device, network, index) {
+        const isMainNetwork = network.is_main;
+        const networkClass = isMainNetwork ? 'wifi-network main-network' : 'wifi-network';
+        const badgeClass = isMainNetwork ? 'network-badge main' : 'network-badge';
+        const badgeText = isMainNetwork ? 'Principal' : 'Secundaria';
+
+        // Generar ID único para el toggle de contraseña
+        const passwordToggleId = `pwd-${device.serial_number}-${network.wlan_id}`;
+
+        return `
+            <div class="${networkClass}">
+                <div class="network-header">
+                    <div class="network-info">
+                        <div class="network-ssid">
+                            <span>${network.ssid || 'Sin SSID'}</span>
+                            <span class="${badgeClass}">${badgeText}</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="detail-section">
-                <h3><i class="fas fa-microchip"></i> Versiones</h3>
-                <div class="detail-grid">
+                <div class="network-details">
                     <div class="detail-item">
-                        <span class="detail-label">Software:</span>
-                        <span class="detail-value">${device.software_version || 'N/A'}</span>
+                        <span class="detail-label">Contraseña</span>
+                        <div class="password-display">
+                            <span class="password-value" id="${passwordToggleId}">${this.maskPassword(network.password)}</span>
+                            <button class="password-toggle-btn" data-password="${network.password || ''}" data-target="${passwordToggleId}">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="detail-item">
-                        <span class="detail-label">Hardware:</span>
-                        <span class="detail-value">${device.hardware_version || 'N/A'}</span>
+                        <span class="detail-label">Estado</span>
+                        <span class="detail-value">${network.enabled === 'true' || network.enabled === '1' ? '🟢 Activo' : '🔴 Inactivo'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Seguridad</span>
+                        <span class="detail-value">${network.auth_mode || 'N/A'}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Cifrado</span>
+                        <span class="detail-value">${network.encryption_mode || 'N/A'}</span>
                     </div>
                 </div>
-            </div>
 
-            <div class="detail-section">
-                <h3><i class="fas fa-network-wired"></i> Conectividad</h3>
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <span class="detail-label">Dirección IP:</span>
-                        <span class="detail-value">${device.ip || 'N/A'}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">MAC Address:</span>
-                        <span class="detail-value">${device.mac_address || 'N/A'}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">URL de Conexión:</span>
-                        <span class="detail-value">${device.connection_url || 'N/A'}</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="detail-section">
-                <h3><i class="fas fa-wifi"></i> Redes WiFi</h3>
-                <div class="detail-grid">
-                    ${device.ssid && device.ssid.length > 0 ? 
-                        device.ssid.map((ssid, index) => `
-                            <div class="detail-item">
-                                <span class="detail-label">SSID ${index + 1}:</span>
-                                <span class="detail-value">${ssid}</span>
-                            </div>
-                        `).join('') :
-                        '<div class="detail-item"><span class="detail-label">SSIDs:</span><span class="detail-value">No configurados</span></div>'
-                    }
-                </div>
-            </div>
-
-            <div class="detail-section">
-                <h3><i class="fas fa-clock"></i> Estado</h3>
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <span class="detail-label">Último contacto:</span>
-                        <span class="detail-value">${device.last_inform || 'N/A'}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Tags:</span>
-                        <span class="detail-value">
-                            ${device.tags && device.tags.length > 0 ? 
-                                device.tags.join(', ') : 'Ninguno'
-                            }
-                        </span>
-                    </div>
+                <div class="network-actions">
+                    <button class="btn btn-primary btn-small" onclick="wifiManager.editSSID('${device.serial_number}', '${network.wlan_id}', '${network.ssid}')">
+                        <i class="fas fa-edit"></i> Editar SSID
+                    </button>
+                    <button class="btn btn-warning btn-small" onclick="wifiManager.editPassword('${device.serial_number}', '${network.wlan_id}', '${network.ssid}', '${network.password || ''}')">
+                        <i class="fas fa-key"></i> Cambiar Contraseña
+                    </button>
                 </div>
             </div>
         `;
+    }
 
-        this.modalBody.innerHTML = details;
-        this.modal.style.display = 'block';
+    maskPassword(password) {
+        if (!password) return 'Sin contraseña';
+        return '*'.repeat(Math.min(password.length, 12));
+    }
+
+    togglePasswordVisibility(button) {
+        const targetId = button.getAttribute('data-target');
+        const passwordElement = document.getElementById(targetId);
+        const actualPassword = button.getAttribute('data-password');
+        const icon = button.querySelector('i');
+
+        if (passwordElement.textContent.includes('*')) {
+            passwordElement.textContent = actualPassword || 'Sin contraseña';
+            icon.className = 'fas fa-eye-slash';
+        } else {
+            passwordElement.textContent = this.maskPassword(actualPassword);
+            icon.className = 'fas fa-eye';
+        }
+    }
+
+    editSSID(deviceSerial, wlanId, currentSSID) {
+        this.currentEditDevice = deviceSerial;
+        this.currentEditNetwork = wlanId;
+
+        this.currentSSID.value = currentSSID;
+        this.newSSID.value = currentSSID;
+
+        this.openModal('editSSIDModal');
+        this.newSSID.focus();
+        this.newSSID.select();
+    }
+
+    editPassword(deviceSerial, wlanId, ssid, currentPassword) {
+        this.currentEditDevice = deviceSerial;
+        this.currentEditNetwork = wlanId;
+
+        this.networkSSID.value = ssid;
+        this.currentPassword.value = currentPassword;
+        this.newPassword.value = currentPassword;
+
+        this.openModal('editPasswordModal');
+        this.newPassword.focus();
+        this.newPassword.select();
+    }
+
+    async submitSSIDChange() {
+        const newSSIDValue = this.newSSID.value.trim();
+
+        if (!newSSIDValue) {
+            this.showNotification('El SSID no puede estar vacío', 'error');
+            return;
+        }
+
+        if (newSSIDValue.length > 32) {
+            this.showNotification('El SSID no puede tener más de 32 caracteres', 'error');
+            return;
+        }
+
+        // Confirmar cambio
+        this.confirmMessage.textContent = `¿Confirmar cambio de SSID a "${newSSIDValue}"? Esto puede desconectar dispositivos conectados.`;
+        this.pendingAction = () => this.executeSSIDChange(newSSIDValue);
+        this.openModal('confirmModal');
+    }
+
+    async executeSSIDChange(newSSID) {
+        try {
+            const response = await fetch(
+                `${this.baseUrl}/device/${this.currentEditDevice}/wifi/${this.currentEditNetwork}/ssid`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ssid: newSSID })
+                }
+            );
+
+            const result = await response.json();
+
+            if (result.success) {
+                this.showNotification(`SSID actualizado correctamente a "${newSSID}"`, 'success');
+                this.closeModal('editSSIDModal');
+                await this.loadDevices(); // Recargar para mostrar cambios
+            } else {
+                this.showNotification(`Error: ${result.message}`, 'error');
+            }
+        } catch (error) {
+            this.showNotification('Error de conexión al actualizar SSID', 'error');
+        }
+
+        this.closeModal('confirmModal');
+    }
+
+    async submitPasswordChange() {
+        const newPasswordValue = this.newPassword.value.trim();
+
+        if (newPasswordValue.length > 0 && newPasswordValue.length < 8) {
+            this.showNotification('La contraseña debe tener al menos 8 caracteres', 'error');
+            return;
+        }
+
+        if (newPasswordValue.length > 63) {
+            this.showNotification('La contraseña no puede tener más de 63 caracteres', 'error');
+            return;
+        }
+
+        // Confirmar cambio
+        const message = newPasswordValue ? 
+            `¿Confirmar cambio de contraseña WiFi? Esto desconectará todos los dispositivos.` :
+            `¿Confirmar eliminación de contraseña? La red quedará abierta.`;
+
+        this.confirmMessage.textContent = message;
+        this.pendingAction = () => this.executePasswordChange(newPasswordValue);
+        this.openModal('confirmModal');
+    }
+
+    async executePasswordChange(newPassword) {
+        try {
+            const response = await fetch(
+                `${this.baseUrl}/device/${this.currentEditDevice}/wifi/${this.currentEditNetwork}/password`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password: newPassword })
+                }
+            );
+
+            const result = await response.json();
+
+            if (result.success) {
+                const message = newPassword ? 
+                    'Contraseña WiFi actualizada correctamente' :
+                    'Contraseña WiFi eliminada - Red abierta';
+                this.showNotification(message, 'success');
+                this.closeModal('editPasswordModal');
+                await this.loadDevices(); // Recargar para mostrar cambios
+            } else {
+                this.showNotification(`Error: ${result.message}`, 'error');
+            }
+        } catch (error) {
+            this.showNotification('Error de conexión al actualizar contraseña', 'error');
+        }
+
+        this.closeModal('confirmModal');
+    }
+
+    executeConfirmedAction() {
+        if (this.pendingAction) {
+            this.pendingAction();
+            this.pendingAction = null;
+        }
+    }
+
+    openModal(modalId) {
+        document.getElementById(modalId).style.display = 'block';
+    }
+
+    closeModal(modalId) {
+        document.getElementById(modalId).style.display = 'none';
+    }
+
+    showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+
+        let icon = 'fa-info-circle';
+        let title = 'Información';
+
+        switch (type) {
+            case 'success':
+                icon = 'fa-check-circle';
+                title = 'Éxito';
+                break;
+            case 'error':
+                icon = 'fa-exclamation-circle';
+                title = 'Error';
+                break;
+            case 'warning':
+                icon = 'fa-exclamation-triangle';
+                title = 'Advertencia';
+                break;
+        }
+
+        notification.innerHTML = `
+            <i class="fas ${icon}"></i>
+            <div class="notification-content">
+                <div class="notification-title">${title}</div>
+                <div class="notification-message">${message}</div>
+            </div>
+        `;
+
+        this.notificationContainer.appendChild(notification);
+
+        // Auto remove después de 5 segundos
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 5000);
     }
 
     truncateText(text, maxLength) {
@@ -377,52 +556,10 @@ class GenieACSManager {
         this.errorMessage.style.display = 'none';
         this.emptyState.style.display = 'block';
     }
-
-    showSuccessMessage(message) {
-        // Crear notificación temporal
-        const notification = document.createElement('div');
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #27ae60;
-            color: white;
-            padding: 15px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-            z-index: 1001;
-            animation: slideIn 0.3s ease;
-        `;
-        notification.innerHTML = `<i class="fas fa-check"></i> ${message}`;
-
-        document.body.appendChild(notification);
-
-        // Remover después de 3 segundos
-        setTimeout(() => {
-            notification.style.animation = 'slideOut 0.3s ease';
-            setTimeout(() => {
-                document.body.removeChild(notification);
-            }, 300);
-        }, 3000);
-    }
 }
 
-// Agregar estilos para animaciones de notificación
-const notificationStyles = document.createElement('style');
-notificationStyles.textContent = `
-    @keyframes slideIn {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-    }
-
-    @keyframes slideOut {
-        from { transform: translateX(0); opacity: 1; }
-        to { transform: translateX(100%); opacity: 0; }
-    }
-`;
-document.head.appendChild(notificationStyles);
-
 // Inicializar la aplicación cuando el DOM esté listo
+let wifiManager;
 document.addEventListener('DOMContentLoaded', () => {
-    new GenieACSManager();
+    wifiManager = new WiFiManager();
 });
