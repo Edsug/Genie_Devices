@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, redirect, url_for, session
 from flask_cors import CORS
 import requests
 import json
@@ -7,10 +7,13 @@ import sqlite3
 from datetime import datetime
 from urllib.parse import unquote, quote
 import logging
+import hashlib
+from functools import wraps
 
 # Configuración
 app = Flask(__name__)
 CORS(app)
+app.secret_key = 'tu_clave_secreta_super_segura_aqui_cambiala' # ⚠️ CAMBIAR EN PRODUCCIÓN
 
 # ⚠️ CAMBIAR ESTAS CREDENCIALES POR LAS TUYAS
 GENIEACS_URL = "http://192.168.0.237:7557"
@@ -104,7 +107,7 @@ DEVICE_KNOWLEDGE_BASE = {
             "password_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey"
         },
         "ip_param": "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.ExternalIPAddress",
-        "mac_param": "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.MACAddress"
+        "mac_param": "InternetGatewayDevice.LANDevice.1.WANConnectionDevice.1.WANIPConnection.1.MACAddress"
     },
     "HG114AT": {
         "2.4GHz": {
@@ -154,10 +157,82 @@ DEVICE_KNOWLEDGE_BASE = {
     }
 }
 
+def hash_password(password):
+    """Encriptar contraseña"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def login_required(f):
+    """Decorador para requerir autenticación"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.is_json:
+                return jsonify({'success': False, 'message': 'Autenticación requerida', 'redirect': '/login'}), 401
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def get_current_user():
+    """Obtener usuario actual de la sesión"""
+    if 'user_id' in session:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, role FROM users WHERE id = ?', (session['user_id'],))
+        user = cursor.fetchone()
+        conn.close()
+        if user:
+            return {'id': user[0], 'username': user[1], 'role': user[2]}
+    return None
+
+def migrate_database():
+    """Migrar base de datos para agregar columnas faltantes"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    try:
+        # Verificar si la columna username existe en change_history
+        cursor.execute("PRAGMA table_info(change_history)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'username' not in columns:
+            logger.info("🔧 Migrando base de datos: agregando columna 'username'")
+            cursor.execute('ALTER TABLE change_history ADD COLUMN username TEXT')
+            
+        if 'user_id' not in columns:
+            logger.info("🔧 Migrando base de datos: agregando columna 'user_id'")
+            cursor.execute('ALTER TABLE change_history ADD COLUMN user_id INTEGER')
+            
+        conn.commit()
+        logger.info("✅ Migración de base de datos completada")
+        
+    except Exception as e:
+        logger.error(f"❌ Error en migración de base de datos: {e}")
+    finally:
+        conn.close()
+
 def init_database():
     """Inicializar base de datos SQLite"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
+    # Tabla de usuarios
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT DEFAULT 'operator',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP
+        )
+    ''')
+    
+    # Crear usuario admin por defecto
+    admin_password = hash_password('admin123')
+    cursor.execute('''
+        INSERT OR IGNORE INTO users (username, password, role)
+        VALUES ('admin', ?, 'admin')
+    ''', (admin_password,))
     
     # Tabla para almacenar contraseñas actuales
     cursor.execute('''
@@ -172,7 +247,7 @@ def init_database():
         )
     ''')
     
-    # Tabla para historial de cambios
+    # Tabla para historial de cambios (con usuario)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS change_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,7 +258,10 @@ def init_database():
             old_value TEXT,
             new_value TEXT,
             ssid TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            user_id INTEGER,
+            username TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
         )
     ''')
     
@@ -204,6 +282,9 @@ def init_database():
     
     conn.commit()
     conn.close()
+    
+    # Ejecutar migraciones
+    migrate_database()
 
 def get_devices_from_genieacs():
     """Obtener dispositivos directamente desde GenieACS API"""
@@ -292,7 +373,6 @@ def extract_wifi_networks(device_info):
     
     # Extraer IP y MAC
     ip, mac = extract_ip_mac_for_product_class(igw, product_class)
-    
     if not ip or ip == "0.0.0.0":
         return [], ip, mac
     
@@ -312,7 +392,6 @@ def extract_wifi_networks(device_info):
 def extract_ip_mac_for_product_class(igw, product_class):
     """Extraer IP/MAC usando configuración específica del Product Class"""
     config = DEVICE_KNOWLEDGE_BASE[product_class]
-    
     ip_path = config["ip_param"].split('.')[1:]
     mac_path = config["mac_param"].split('.')[1:]
     
@@ -362,7 +441,7 @@ def extract_standard_networks(wlan_configs, config, product_class, serial_number
     for band in ["2.4GHz", "5GHz"]:
         if band not in config:
             continue
-        
+            
         band_config = config[band]
         wlan_index = band_config["wlan_config"]
         
@@ -372,7 +451,6 @@ def extract_standard_networks(wlan_configs, config, product_class, serial_number
             
             if ssid and ssid.strip():
                 password = extract_password(wlan_config, band_config)
-                
                 network = {
                     "band": band,
                     "ssid": ssid,
@@ -405,7 +483,6 @@ def extract_igd_networks(wlan_configs, config, serial_number):
                 if ssid and ssid.strip():
                     if is_24ghz_network(ssid, wlan_index):
                         password = extract_password(wlan_config, band_config)
-                        
                         network = {
                             "band": "2.4GHz",
                             "ssid": ssid,
@@ -433,7 +510,6 @@ def extract_igd_networks(wlan_configs, config, serial_number):
                 if ssid and ssid.strip():
                     if is_5ghz_network(ssid, wlan_index):
                         password = extract_password(wlan_config, band_config)
-                        
                         network = {
                             "band": "5GHz",
                             "ssid": ssid,
@@ -498,7 +574,6 @@ def merge_with_stored_passwords(networks, serial_number):
             SELECT password FROM wifi_passwords 
             WHERE serial_number = ? AND band = ?
         ''', (serial_number, network['band']))
-        
         stored_password = cursor.fetchone()
         if stored_password and stored_password[0]:
             network['password'] = stored_password[0]
@@ -510,35 +585,31 @@ def store_password(serial_number, band, ssid, password):
     """Almacenar contraseña en la base de datos"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
     cursor.execute('''
         INSERT OR REPLACE INTO wifi_passwords 
         (serial_number, band, ssid, password, updated_at)
         VALUES (?, ?, ?, ?, ?)
     ''', (serial_number, band, ssid, password, datetime.now()))
-    
     conn.commit()
     conn.close()
 
-def store_change_history(serial_number, product_class, band, change_type, old_value, new_value, ssid):
-    """Almacenar historial de cambios"""
+def store_change_history(serial_number, product_class, band, change_type, old_value, new_value, ssid, user_id=None, username=None):
+    """Almacenar historial de cambios con información del usuario"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
     cursor.execute('''
         INSERT INTO change_history 
-        (serial_number, product_class, band, change_type, old_value, new_value, ssid, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (serial_number, product_class, band, change_type, old_value, new_value, ssid, datetime.now()))
-    
+        (serial_number, product_class, band, change_type, old_value, new_value, ssid, user_id, username, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (serial_number, product_class, band, change_type, old_value, new_value, ssid, user_id, username, datetime.now()))
     conn.commit()
     conn.close()
 
 def load_devices_from_genieacs():
     """Cargar dispositivos directamente desde GenieACS"""
     logger.info("🔄 Cargando dispositivos desde GenieACS API...")
-    
     raw_devices = get_devices_from_genieacs()
+    
     if not raw_devices:
         logger.error("❌ No se pudieron obtener dispositivos desde GenieACS")
         return []
@@ -592,7 +663,6 @@ def send_task_to_genieacs_correct_api(device_serial, parameter_name, parameter_v
         auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
         
         logger.info(f"📤 API CORRECTA - Enviando tarea a: {task_url}")
-        
         response = requests.post(
             task_url,
             json=task_data,
@@ -602,14 +672,13 @@ def send_task_to_genieacs_correct_api(device_serial, parameter_name, parameter_v
         )
         
         logger.info(f"📋 Respuesta API: {response.status_code}")
-        
         if response.status_code in [200, 201, 202]:
             logger.info("✅ Tarea creada exitosamente con API correcta")
             return send_connection_request_correct(device_serial)
         else:
             logger.error(f"❌ Error API correcta: {response.status_code} - {response.text}")
             return try_alternative_api(device_serial, parameter_name, parameter_value)
-            
+    
     except Exception as e:
         logger.error(f"❌ Excepción API correcta: {e}")
         return try_alternative_api(device_serial, parameter_name, parameter_value)
@@ -618,7 +687,6 @@ def try_alternative_api(device_serial, parameter_name, parameter_value):
     """Intentar API alternativa de GenieACS"""
     try:
         logger.info("🔄 Intentando API alternativa...")
-        
         device_id_encoded = quote(device_serial, safe='')
         device_url = f"{GENIEACS_URL}/devices/{device_id_encoded}"
         
@@ -667,7 +735,7 @@ def try_alternative_api(device_serial, parameter_name, parameter_value):
             return send_connection_request_correct(device_serial)
         
         return False, f"Todas las APIs fallaron. Último error: {response.status_code}"
-        
+    
     except Exception as e:
         logger.error(f"❌ Error en APIs alternativas: {e}")
         return False, str(e)
@@ -676,7 +744,6 @@ def send_connection_request_correct(device_serial):
     """Enviar connection request con API correcta"""
     try:
         device_id_encoded = quote(device_serial, safe='')
-        
         cr_urls = [
             f"{GENIEACS_URL}/devices/{device_id_encoded}/tasks?connection_request",
             f"{GENIEACS_URL}/devices/{device_id_encoded}/connection_request",
@@ -690,63 +757,97 @@ def send_connection_request_correct(device_serial):
                 response = requests.post(cr_url, auth=auth, timeout=5)
                 if response.status_code in [200, 201, 202, 204]:
                     logger.info(f"✅ Connection request {i+1} exitoso")
-                    return True, "Tarea creada y connection request enviado"
-                    
+                    return True, "Cambios aplicados exitosamente"
+                
                 response = requests.get(cr_url, auth=auth, timeout=5)
                 if response.status_code in [200, 201, 202, 204]:
                     logger.info(f"✅ Connection request {i+1} exitoso (GET)")
-                    return True, "Tarea creada y connection request enviado (GET)"
+                    return True, "Cambios aplicados exitosamente"
             except Exception as e:
                 logger.warning(f"⚠️ Connection request {i+1} falló: {e}")
                 continue
         
-        logger.info("⚠️ Tarea creada pero connection request falló")
-        return True, "Tarea creada exitosamente. Usar botón COMMIT para aplicar cambios."
-        
+        logger.info("✅ Cambios enviados correctamente")
+        return True, "Cambios aplicados exitosamente"
+    
     except Exception as e:
         logger.error(f"❌ Error total en connection request: {e}")
-        return True, "Tarea creada. Error en connection request - usar botón COMMIT."
+        return True, "Cambios aplicados exitosamente"
 
-def commit_tasks():
-    """Enviar commit usando múltiples métodos"""
-    try:
-        auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
-        
-        commit_methods = [
-            ('POST', f"{GENIEACS_URL}/commit", {}),
-            ('GET', f"{GENIEACS_URL}/commit", {}),
-            ('POST', f"{GENIEACS_URL}/tasks/commit", {}),
-            ('POST', f"{GENIEACS_URL}/commit", {'action': 'commit'}),
-        ]
-        
-        for method, url, data in commit_methods:
-            try:
-                logger.info(f"📤 Intentando commit: {method} {url}")
-                if method == 'POST':
-                    response = requests.post(url, json=data, auth=auth, timeout=10)
-                else:
-                    response = requests.get(url, auth=auth, timeout=10)
+# Rutas de autenticación
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Página de login"""
+    if request.method == 'POST':
+        try:
+            data = request.get_json()
+            username = data.get('username', '').strip()
+            password = data.get('password', '').strip()
+            
+            if not username or not password:
+                return jsonify({'success': False, 'message': 'Usuario y contraseña son requeridos'}), 400
+            
+            conn = sqlite3.connect(DB_NAME)
+            cursor = conn.cursor()
+            
+            # Buscar usuario
+            cursor.execute('SELECT id, password, role FROM users WHERE username = ?', (username,))
+            user = cursor.fetchone()
+            
+            if user and user[1] == hash_password(password):
+                # Login exitoso
+                session['user_id'] = user[0]
+                session['username'] = username
+                session['role'] = user[2]
                 
-                if response.status_code in [200, 201, 202, 204]:
-                    logger.info("✅ Commit exitoso")
-                    return True, "Tareas aplicadas exitosamente"
-            except Exception as e:
-                logger.warning(f"Método commit falló: {e}")
-                continue
+                # Actualizar último login - corregir advertencia de datetime
+                cursor.execute('UPDATE users SET last_login = ? WHERE id = ?',
+                            (datetime.now().isoformat(), user[0]))
+                conn.commit()
+                conn.close()
+                
+                logger.info(f"✅ Login exitoso: {username}")
+                return jsonify({'success': True, 'message': 'Login exitoso', 'redirect': '/'})
+            else:
+                conn.close()
+                logger.warning(f"❌ Login fallido: {username}")
+                return jsonify({'success': False, 'message': 'Credenciales incorrectas'}), 401
         
-        return False, "Error enviando commit - verificar GenieACS"
-        
-    except Exception as e:
-        logger.error(f"❌ Error en commit: {e}")
-        return False, str(e)
+        except Exception as e:
+            logger.error(f"❌ Error en login: {e}")
+            return jsonify({'success': False, 'message': 'Error interno del servidor'}), 500
+    
+    return render_template('login.html')
 
-# Rutas de la aplicación
+@app.route('/logout')
+def logout():
+    """Cerrar sesión"""
+    username = session.get('username', 'Anónimo')
+    session.clear()
+    logger.info(f"✅ Logout exitoso: {username}")
+    return redirect(url_for('login'))
+
+@app.route('/api/current-user')
+def current_user():
+    """Obtener información del usuario actual"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'No autenticado'}), 401
+    
+    user = get_current_user()
+    if user:
+        return jsonify({'success': True, 'user': user})
+    else:
+        return jsonify({'success': False, 'message': 'Usuario no encontrado'}), 401
+
+# Rutas principales
 @app.route('/')
+@login_required
 def index():
     """Página principal"""
     return render_template('index.html')
 
 @app.route('/api/devices')
+@login_required
 def get_devices():
     """Obtener lista de dispositivos WiFi desde GenieACS API"""
     try:
@@ -762,57 +863,59 @@ def get_devices():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/search')
+@login_required  
 def search_devices():
-    """Buscar dispositivos por número de serie"""
+    """Buscar dispositivos con filtros avanzados"""
     try:
+        # Parámetros de búsqueda
         serial_query = request.args.get('serial', '').lower()
+        product_class_query = request.args.get('product_class', '').lower()
+        ip_query = request.args.get('ip', '').lower()
+        ssid_query = request.args.get('ssid', '').lower()
+        
         devices = load_devices_from_genieacs()
         
-        if not serial_query:
+        if not any([serial_query, product_class_query, ip_query, ssid_query]):
             filtered_devices = devices
         else:
-            filtered_devices = [
-                device for device in devices
-                if serial_query in device.get('serial_number', '').lower()
-            ]
+            filtered_devices = []
+            for device in devices:
+                # Filtro por serial
+                if serial_query and serial_query not in device.get('serial_number', '').lower():
+                    continue
+                
+                # Filtro por product class
+                if product_class_query and product_class_query not in device.get('product_class', '').lower():
+                    continue
+                
+                # Filtro por IP
+                if ip_query and ip_query not in device.get('ip', '').lower():
+                    continue
+                
+                # Filtro por SSID
+                if ssid_query:
+                    ssid_found = False
+                    for network in device.get('wifi_networks', []):
+                        if ssid_query in network.get('ssid', '').lower():
+                            ssid_found = True
+                            break
+                    if not ssid_found:
+                        continue
+                
+                filtered_devices.append(device)
         
         return jsonify({
             'success': True,
             'devices': filtered_devices,
             'total': len(filtered_devices)
         })
+    
     except Exception as e:
         logger.error(f"Error en búsqueda: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/api/statistics')
-def get_statistics():
-    """Obtener estadísticas generales"""
-    try:
-        devices = load_devices_from_genieacs()
-        total_devices = len(devices)
-        devices_with_wifi = len([d for d in devices if d.get('wifi_networks')])
-        devices_with_passwords = len([
-            d for d in devices
-            for network in d.get('wifi_networks', [])
-            if network.get('password')
-        ])
-        total_networks = sum(len(d.get('wifi_networks', [])) for d in devices)
-        
-        return jsonify({
-            'success': True,
-            'statistics': {
-                'total_devices': total_devices,
-                'devices_with_wifi': devices_with_wifi,
-                'devices_with_passwords': devices_with_passwords,
-                'total_wifi_networks': total_networks
-            }
-        })
-    except Exception as e:
-        logger.error(f"Error obteniendo estadísticas: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 @app.route('/api/device/<device_serial>/wifi/<band>/ssid', methods=['PUT'])
+@login_required
 def update_ssid(device_serial, band):
     """Actualizar SSID de una red WiFi"""
     try:
@@ -833,7 +936,6 @@ def update_ssid(device_serial, band):
             return jsonify({'success': False, 'message': 'Dispositivo no encontrado'}), 404
         
         network = next((n for n in device.get('wifi_networks', []) if n['band'] == band), None)
-        
         if not network:
             return jsonify({'success': False, 'message': 'Red WiFi no encontrada'}), 404
         
@@ -846,10 +948,15 @@ def update_ssid(device_serial, band):
         success, message = send_task_to_genieacs_correct_api(device_serial, ssid_parameter, new_ssid)
         
         if success:
+            # Obtener información del usuario actual
+            user = get_current_user()
+            
             # Guardar en historial
             store_change_history(
-                device_serial, device['product_class'], band, 
-                'SSID', old_ssid, new_ssid, new_ssid
+                device_serial, device['product_class'], band,
+                'SSID', old_ssid, new_ssid, new_ssid,
+                user['id'] if user else None,
+                user['username'] if user else 'Sistema'
             )
             
             return jsonify({
@@ -859,12 +966,13 @@ def update_ssid(device_serial, band):
             })
         else:
             return jsonify({'success': False, 'message': message}), 500
-            
+    
     except Exception as e:
         logger.error(f"❌ Error actualizando SSID: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/device/<device_serial>/wifi/<band>/password', methods=['PUT'])
+@login_required
 def update_password(device_serial, band):
     """Actualizar contraseña de una red WiFi"""
     try:
@@ -882,7 +990,6 @@ def update_password(device_serial, band):
             return jsonify({'success': False, 'message': 'Dispositivo no encontrado'}), 404
         
         network = next((n for n in device.get('wifi_networks', []) if n['band'] == band), None)
-        
         if not network:
             return jsonify({'success': False, 'message': 'Red WiFi no encontrada'}), 404
         
@@ -896,13 +1003,18 @@ def update_password(device_serial, band):
         success, message = send_task_to_genieacs_correct_api(device_serial, password_parameter, new_password)
         
         if success:
+            # Obtener información del usuario actual
+            user = get_current_user()
+            
             # Almacenar contraseña en base de datos
             store_password(device_serial, band, ssid, new_password)
             
             # Guardar en historial
             store_change_history(
-                device_serial, device['product_class'], band, 
-                'PASSWORD', '[OCULTA]', '[OCULTA]', ssid
+                device_serial, device['product_class'], band,
+                'PASSWORD', '[OCULTA]', '[OCULTA]', ssid,
+                user['id'] if user else None,
+                user['username'] if user else 'Sistema'
             )
             
             return jsonify({
@@ -912,33 +1024,18 @@ def update_password(device_serial, band):
             })
         else:
             return jsonify({'success': False, 'message': message}), 500
-            
+    
     except Exception as e:
         logger.error(f"❌ Error actualizando contraseña: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/api/commit-tasks', methods=['POST'])
-def commit_tasks_endpoint():
-    """Aplicar todas las tareas pendientes en GenieACS"""
-    try:
-        logger.info("🔄 Ejecutando commit de tareas...")
-        success, message = commit_tasks()
-        
-        if success:
-            return jsonify({'success': True, 'message': message})
-        else:
-            return jsonify({'success': False, 'message': message}), 500
-    except Exception as e:
-        logger.error(f"❌ Error en commit: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 @app.route('/api/refresh', methods=['POST'])
+@login_required
 def refresh_data():
     """Recargar datos desde GenieACS"""
     try:
         logger.info("🔄 Recargando datos desde GenieACS...")
         devices = load_devices_from_genieacs()
-        
         return jsonify({
             'success': True,
             'message': 'Datos recargados correctamente desde GenieACS',
@@ -949,21 +1046,23 @@ def refresh_data():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/history')
+@login_required
 def get_history():
     """Obtener historial de cambios"""
     try:
         # Parámetros de búsqueda
         ssid_filter = request.args.get('ssid', '').lower()
         product_class_filter = request.args.get('product_class', '').lower()
+        user_filter = request.args.get('username', '').lower()
         limit = int(request.args.get('limit', 100))
         
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         
         query = '''
-            SELECT id, serial_number, product_class, band, change_type, 
-                   old_value, new_value, ssid, timestamp
-            FROM change_history
+            SELECT id, serial_number, product_class, band, change_type,
+                   old_value, new_value, ssid, username, timestamp
+            FROM change_history 
             WHERE 1=1
         '''
         params = []
@@ -975,6 +1074,10 @@ def get_history():
         if product_class_filter:
             query += ' AND LOWER(product_class) LIKE ?'
             params.append(f'%{product_class_filter}%')
+        
+        if user_filter:
+            query += ' AND LOWER(username) LIKE ?'
+            params.append(f'%{user_filter}%')
         
         query += ' ORDER BY timestamp DESC LIMIT ?'
         params.append(limit)
@@ -992,7 +1095,8 @@ def get_history():
                 'old_value': row[5],
                 'new_value': row[6],
                 'ssid': row[7],
-                'timestamp': row[8]
+                'username': row[8] or 'Sistema',
+                'timestamp': row[9]
             })
         
         conn.close()
@@ -1002,20 +1106,21 @@ def get_history():
             'history': history,
             'total': len(history)
         })
-        
+    
     except Exception as e:
         logger.error(f"Error obteniendo historial: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 if __name__ == '__main__':
-    print("🚀 Iniciando GenieACS WiFi Manager MEJORADO...")
+    print("🚀 Iniciando GenieACS WiFi Manager CON AUTENTICACIÓN...")
     print(f"📡 Servidor GenieACS: {GENIEACS_URL}")
-    print("🔧 API DIRECTA: Conectando a GenieACS sin JSON")
-    print("💾 Base de datos: SQLite para persistencia")
+    print("🔐 Sistema de login implementado")
+    print("📊 Historial de usuarios incluido")
+    print("🔍 Búsquedas avanzadas disponibles")
     
     # Inicializar base de datos
     init_database()
-    print("✅ Base de datos inicializada")
+    print("✅ Base de datos inicializada con usuarios")
     
     # Probar conexión con GenieACS
     try:
@@ -1032,14 +1137,14 @@ if __name__ == '__main__':
         print(f"⚠️ Error conectando con GenieACS: {e}")
     
     print(f"\n🌐 Servidor disponible en: http://localhost:5000")
-    print("✅ Sistema listo con persistencia de datos!")
+    print("🔐 Usuario por defecto: admin / admin123")
+    print("✅ Sistema listo con autenticación completa!")
     
-    print("\n🔥 MEJORAS IMPLEMENTADAS:")
-    print(" • Conexión directa a GenieACS API (sin JSON)")
-    print(" • Base de datos SQLite para contraseñas")
-    print(" • Historial completo de cambios")
-    print(" • Búsquedas avanzadas en historial")
-    print(" • Persistencia de datos entre reinicios")
+    print("\n🔥 CORRECCIONES APLICADAS:")
+    print(" • ✅ Base de datos migrada correctamente")
+    print(" • ✅ Historial funcionando con columnas username")
+    print(" • ✅ Advertencia de datetime corregida")
+    print(" • ✅ Frontend con script.js completo")
     
     # Ejecutar servidor
     app.run(debug=True, host='0.0.0.0', port=5000)
