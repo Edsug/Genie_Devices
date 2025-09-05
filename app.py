@@ -13,7 +13,7 @@ from functools import wraps
 # Configuración
 app = Flask(__name__)
 CORS(app)
-app.secret_key = 'tu_clave_secreta_super_segura_aqui_cambiala' # ⚠️ CAMBIAR EN PRODUCCIÓN
+app.secret_key = 'tu_clave_secreta_super_segura_aqui_cambiala'  # ⚠️ CAMBIAR EN PRODUCCIÓN
 
 # ⚠️ CAMBIAR ESTAS CREDENCIALES POR LAS TUYAS
 GENIEACS_URL = "http://192.168.0.237:7557"
@@ -188,6 +188,7 @@ def migrate_database():
     """Migrar base de datos para agregar columnas faltantes"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
     try:
         # Verificar si la columna username existe en change_history
         cursor.execute("PRAGMA table_info(change_history)")
@@ -201,8 +202,28 @@ def migrate_database():
             logger.info("🔧 Migrando base de datos: agregando columna 'user_id'")
             cursor.execute('ALTER TABLE change_history ADD COLUMN user_id INTEGER')
         
+        if 'contract_number' not in columns:
+            logger.info("🔧 Migrando base de datos: agregando columna 'contract_number'")
+            cursor.execute('ALTER TABLE change_history ADD COLUMN contract_number TEXT')
+        
+        # Verificar si la tabla device_contracts existe
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='device_contracts'")
+        if not cursor.fetchone():
+            logger.info("🔧 Migrando base de datos: creando tabla 'device_contracts'")
+            cursor.execute('''
+                CREATE TABLE device_contracts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    serial_number TEXT UNIQUE NOT NULL,
+                    contract_number TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_by INTEGER,
+                    FOREIGN KEY (updated_by) REFERENCES users (id)
+                )
+            ''')
+        
         conn.commit()
         logger.info("✅ Migración de base de datos completada")
+        
     except Exception as e:
         logger.error(f"❌ Error en migración de base de datos: {e}")
     finally:
@@ -232,6 +253,18 @@ def init_database():
         VALUES ('admin', ?, 'admin')
     ''', (admin_password,))
     
+    # Tabla para almacenar contratos de dispositivos
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS device_contracts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            serial_number TEXT UNIQUE NOT NULL,
+            contract_number TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_by INTEGER,
+            FOREIGN KEY (updated_by) REFERENCES users (id)
+        )
+    ''')
+    
     # Tabla para almacenar contraseñas actuales
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS wifi_passwords (
@@ -245,17 +278,18 @@ def init_database():
         )
     ''')
     
-    # Tabla para historial de cambios (con usuario)
+    # Tabla para historial de cambios (con usuario y contrato)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS change_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             serial_number TEXT NOT NULL,
             product_class TEXT,
-            band TEXT NOT NULL,
+            band TEXT,
             change_type TEXT NOT NULL,
             old_value TEXT,
             new_value TEXT,
             ssid TEXT,
+            contract_number TEXT,
             user_id INTEGER,
             username TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -284,25 +318,40 @@ def init_database():
 # Ejecutar migraciones
 migrate_database()
 
+def get_device_contract(serial_number):
+    """Obtener número de contrato de un dispositivo"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT contract_number FROM device_contracts WHERE serial_number = ?', (serial_number,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else ""
+
 def is_device_configured(serial_number):
-    """Verificar si un dispositivo está configurado (tiene cambios de contraseña en ambas redes)"""
+    """Verificar si un dispositivo está configurado"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Verificar si tiene cambios de contraseña en ambas bandas
+    # Un dispositivo está configurado si:
+    # 1. Tiene cambios de contraseña en ambas bandas
+    # 2. Tiene un número de contrato asignado
+    
     cursor.execute('''
-        SELECT DISTINCT band FROM change_history 
+        SELECT DISTINCT band FROM change_history
         WHERE serial_number = ? AND change_type = 'PASSWORD'
     ''', (serial_number,))
-    
     bands_changed = [row[0] for row in cursor.fetchall()]
+    
+    cursor.execute('SELECT contract_number FROM device_contracts WHERE serial_number = ? AND contract_number IS NOT NULL AND contract_number != ""', (serial_number,))
+    has_contract = cursor.fetchone() is not None
+    
     conn.close()
     
-    # Un dispositivo está configurado si tiene cambios en ambas bandas (2.4GHz y 5GHz)
     has_2_4 = '2.4GHz' in bands_changed
     has_5 = '5GHz' in bands_changed
+    has_passwords = has_2_4 and has_5
     
-    return has_2_4 and has_5
+    return has_passwords and has_contract
 
 def get_devices_from_genieacs():
     """Obtener dispositivos directamente desde GenieACS API"""
@@ -391,7 +440,6 @@ def extract_wifi_networks(device_info):
     
     # Extraer IP y MAC
     ip, mac = extract_ip_mac_for_product_class(igw, product_class)
-    
     if not ip or ip == "0.0.0.0":
         return [], ip, mac
     
@@ -596,8 +644,8 @@ def merge_with_stored_passwords(networks, serial_number):
             SELECT password FROM wifi_passwords
             WHERE serial_number = ? AND band = ?
         ''', (serial_number, network['band']))
-        stored_password = cursor.fetchone()
         
+        stored_password = cursor.fetchone()
         if stored_password and stored_password[0]:
             network['password'] = stored_password[0]
     
@@ -608,27 +656,35 @@ def store_password(serial_number, band, ssid, password):
     """Almacenar contraseña en la base de datos"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
     cursor.execute('''
         INSERT OR REPLACE INTO wifi_passwords
         (serial_number, band, ssid, password, updated_at)
         VALUES (?, ?, ?, ?, ?)
     ''', (serial_number, band, ssid, password, datetime.now()))
-    
     conn.commit()
     conn.close()
 
-def store_change_history(serial_number, product_class, band, change_type, old_value, new_value, ssid, user_id=None, username=None):
-    """Almacenar historial de cambios con información del usuario"""
+def store_contract(serial_number, contract_number, user_id=None):
+    """Almacenar número de contrato de un dispositivo"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
+    cursor.execute('''
+        INSERT OR REPLACE INTO device_contracts
+        (serial_number, contract_number, updated_at, updated_by)
+        VALUES (?, ?, ?, ?)
+    ''', (serial_number, contract_number, datetime.now(), user_id))
+    conn.commit()
+    conn.close()
+
+def store_change_history(serial_number, product_class, band, change_type, old_value, new_value, ssid=None, contract_number=None, user_id=None, username=None):
+    """Almacenar historial de cambios con información del usuario y contrato"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO change_history
-        (serial_number, product_class, band, change_type, old_value, new_value, ssid, user_id, username, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (serial_number, product_class, band, change_type, old_value, new_value, ssid, user_id, username, datetime.now()))
-    
+        (serial_number, product_class, band, change_type, old_value, new_value, ssid, contract_number, user_id, username, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (serial_number, product_class, band, change_type, old_value, new_value, ssid, contract_number, user_id, username, datetime.now()))
     conn.commit()
     conn.close()
 
@@ -654,8 +710,16 @@ def load_devices_from_genieacs():
         wifi_networks, ip, mac = extract_wifi_networks(device_info)
         
         if wifi_networks and ip and ip != "0.0.0.0":
-            # Determinar si está configurado
+            # Obtener contrato y determinar si está configurado
+            contract_number = get_device_contract(device_info["serial_number"])
             configured = is_device_configured(device_info["serial_number"])
+            
+            # Obtener SSID 5GHz para título
+            ssid_5g = ""
+            for network in wifi_networks:
+                if network['band'] == '5GHz':
+                    ssid_5g = network['ssid']
+                    break
             
             device_final = {
                 "serial_number": device_info["serial_number"],
@@ -667,8 +731,11 @@ def load_devices_from_genieacs():
                 "last_inform": device_info["last_inform"],
                 "tags": device_info["tags"],
                 "wifi_networks": wifi_networks,
-                "configured": configured
+                "configured": configured,
+                "contract_number": contract_number,
+                "title_ssid": ssid_5g
             }
+            
             wifi_devices.append(device_final)
     
     logger.info(f"✅ Dispositivos WiFi procesados: {len(wifi_devices)}")
@@ -694,7 +761,6 @@ def send_task_to_genieacs_correct_api(device_serial, parameter_name, parameter_v
         auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
         
         logger.info(f"📤 API CORRECTA - Enviando tarea a: {task_url}")
-        
         response = requests.post(
             task_url,
             json=task_data,
@@ -704,14 +770,13 @@ def send_task_to_genieacs_correct_api(device_serial, parameter_name, parameter_v
         )
         
         logger.info(f"📋 Respuesta API: {response.status_code}")
-        
         if response.status_code in [200, 201, 202]:
             logger.info("✅ Tarea creada exitosamente con API correcta")
             return send_connection_request_correct(device_serial)
         else:
             logger.error(f"❌ Error API correcta: {response.status_code} - {response.text}")
             return try_alternative_api(device_serial, parameter_name, parameter_value)
-            
+    
     except Exception as e:
         logger.error(f"❌ Excepción API correcta: {e}")
         return try_alternative_api(device_serial, parameter_name, parameter_value)
@@ -768,7 +833,7 @@ def try_alternative_api(device_serial, parameter_name, parameter_value):
             return send_connection_request_correct(device_serial)
         
         return False, f"Todas las APIs fallaron. Último error: {response.status_code}"
-        
+    
     except Exception as e:
         logger.error(f"❌ Error en APIs alternativas: {e}")
         return False, str(e)
@@ -796,19 +861,19 @@ def send_connection_request_correct(device_serial):
                 if response.status_code in [200, 201, 202, 204]:
                     logger.info(f"✅ Connection request {i+1} exitoso (GET)")
                     return True, "Cambios aplicados exitosamente"
+            
             except Exception as e:
                 logger.warning(f"⚠️ Connection request {i+1} falló: {e}")
                 continue
         
         logger.info("✅ Cambios enviados correctamente")
         return True, "Cambios aplicados exitosamente"
-        
+    
     except Exception as e:
         logger.error(f"❌ Error total en connection request: {e}")
         return True, "Cambios aplicados exitosamente"
 
 # Rutas de autenticación
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Página de login"""
@@ -834,9 +899,9 @@ def login():
                 session['username'] = username
                 session['role'] = user[2]
                 
-                # Actualizar último login - corregir advertencia de datetime
+                # Actualizar último login
                 cursor.execute('UPDATE users SET last_login = ? WHERE id = ?',
-                               (datetime.now().isoformat(), user[0]))
+                              (datetime.now().isoformat(), user[0]))
                 conn.commit()
                 conn.close()
                 
@@ -846,7 +911,7 @@ def login():
                 conn.close()
                 logger.warning(f"❌ Login fallido: {username}")
                 return jsonify({'success': False, 'message': 'Credenciales incorrectas'}), 401
-                
+        
         except Exception as e:
             logger.error(f"❌ Error en login: {e}")
             return jsonify({'success': False, 'message': 'Error interno del servidor'}), 500
@@ -874,7 +939,6 @@ def current_user():
         return jsonify({'success': False, 'message': 'Usuario no encontrado'}), 401
 
 # Rutas principales
-
 @app.route('/')
 @login_required
 def index():
@@ -911,10 +975,17 @@ def search_devices():
     """Buscar dispositivos con búsqueda inteligente"""
     try:
         query = request.args.get('query', '').strip().lower()
+        filter_type = request.args.get('filter', 'all')  # all, configured, unconfigured
+        
+        devices = load_devices_from_genieacs()
         
         if not query:
-            # Sin query, devolver todos los dispositivos
-            devices = load_devices_from_genieacs()
+            # Sin query, filtrar solo por tipo
+            if filter_type == 'configured':
+                devices = [d for d in devices if d.get('configured', False)]
+            elif filter_type == 'unconfigured':
+                devices = [d for d in devices if not d.get('configured', False)]
+            
             configured_devices = [d for d in devices if d.get('configured', False)]
             unconfigured_devices = [d for d in devices if not d.get('configured', False)]
             
@@ -927,12 +998,20 @@ def search_devices():
                 'total': len(devices)
             })
         
-        devices = load_devices_from_genieacs()
         filtered_devices = []
-        
         for device in devices:
+            # Aplicar filtro de tipo primero
+            if filter_type == 'configured' and not device.get('configured', False):
+                continue
+            elif filter_type == 'unconfigured' and device.get('configured', False):
+                continue
+            
             # Buscar en diferentes campos
             matches = []
+            
+            # Contrato (prioridad más alta)
+            if device.get('contract_number') and query in device.get('contract_number', '').lower():
+                matches.append('contract')
             
             # Serial Number
             if query in device.get('serial_number', '').lower():
@@ -967,11 +1046,53 @@ def search_devices():
                 'unconfigured': unconfigured_devices
             },
             'total': len(filtered_devices),
-            'query': query
+            'query': query,
+            'filter': filter_type
         })
-        
+    
     except Exception as e:
         logger.error(f"Error en búsqueda: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/device/<device_serial>/contract', methods=['PUT'])
+@login_required
+def update_contract(device_serial):
+    """Actualizar número de contrato de un dispositivo"""
+    try:
+        data = request.get_json()
+        new_contract = data.get('contract', '').strip()
+        
+        # Obtener información del usuario actual
+        user = get_current_user()
+        
+        # Obtener contrato anterior para historial
+        old_contract = get_device_contract(device_serial)
+        
+        # Almacenar contrato
+        store_contract(device_serial, new_contract, user['id'] if user else None)
+        
+        # Obtener dispositivo para el historial
+        devices = load_devices_from_genieacs()
+        device = next((d for d in devices if d['serial_number'] == device_serial), None)
+        
+        if device:
+            # Guardar en historial
+            store_change_history(
+                device_serial, device['product_class'], None,
+                'CONTRACT', old_contract or '[VACÍO]', new_contract or '[VACÍO]',
+                contract_number=new_contract,
+                user_id=user['id'] if user else None,
+                username=user['username'] if user else 'Sistema'
+            )
+        
+        return jsonify({
+            'success': True,
+            'message': 'Contrato actualizado correctamente',
+            'new_contract': new_contract
+        })
+    
+    except Exception as e:
+        logger.error(f"❌ Error actualizando contrato: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/device/<device_serial>/wifi/<band>/ssid', methods=['PUT'])
@@ -1010,11 +1131,12 @@ def update_ssid(device_serial, band):
         if success:
             # Obtener información del usuario actual
             user = get_current_user()
+            contract_number = get_device_contract(device_serial)
             
             # Guardar en historial
             store_change_history(
                 device_serial, device['product_class'], band,
-                'SSID', old_ssid, new_ssid, new_ssid,
+                'SSID', old_ssid, new_ssid, new_ssid, contract_number,
                 user['id'] if user else None,
                 user['username'] if user else 'Sistema'
             )
@@ -1026,7 +1148,7 @@ def update_ssid(device_serial, band):
             })
         else:
             return jsonify({'success': False, 'message': message}), 500
-            
+    
     except Exception as e:
         logger.error(f"❌ Error actualizando SSID: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1065,6 +1187,7 @@ def update_password(device_serial, band):
         if success:
             # Obtener información del usuario actual
             user = get_current_user()
+            contract_number = get_device_contract(device_serial)
             
             # Almacenar contraseña en base de datos
             store_password(device_serial, band, ssid, new_password)
@@ -1072,7 +1195,7 @@ def update_password(device_serial, band):
             # Guardar en historial
             store_change_history(
                 device_serial, device['product_class'], band,
-                'PASSWORD', '[OCULTA]', '[OCULTA]', ssid,
+                'PASSWORD', '[OCULTA]', '[OCULTA]', ssid, contract_number,
                 user['id'] if user else None,
                 user['username'] if user else 'Sistema'
             )
@@ -1084,7 +1207,7 @@ def update_password(device_serial, band):
             })
         else:
             return jsonify({'success': False, 'message': message}), 500
-            
+    
     except Exception as e:
         logger.error(f"❌ Error actualizando contraseña: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1115,6 +1238,7 @@ def get_history():
         ssid_filter = request.args.get('ssid', '').lower()
         product_class_filter = request.args.get('product_class', '').lower()
         user_filter = request.args.get('username', '').lower()
+        contract_filter = request.args.get('contract', '').lower()
         limit = int(request.args.get('limit', 100))
         
         conn = sqlite3.connect(DB_NAME)
@@ -1122,10 +1246,11 @@ def get_history():
         
         query = '''
             SELECT id, serial_number, product_class, band, change_type,
-                   old_value, new_value, ssid, username, timestamp
+                   old_value, new_value, ssid, contract_number, username, timestamp
             FROM change_history
             WHERE 1=1
         '''
+        
         params = []
         
         if ssid_filter:
@@ -1140,6 +1265,10 @@ def get_history():
             query += ' AND LOWER(username) LIKE ?'
             params.append(f'%{user_filter}%')
         
+        if contract_filter:
+            query += ' AND LOWER(contract_number) LIKE ?'
+            params.append(f'%{contract_filter}%')
+        
         query += ' ORDER BY timestamp DESC LIMIT ?'
         params.append(limit)
         
@@ -1149,15 +1278,16 @@ def get_history():
         for row in cursor.fetchall():
             history.append({
                 'id': row[0],
-                'serial_number': row[1],
-                'product_class': row[2],
-                'band': row[3],
+                'ssid': row[1],
+                'band': row[2],
+                'serial_number': row[3],
                 'change_type': row[4],
                 'old_value': row[5],
                 'new_value': row[6],
-                'ssid': row[7],
-                'username': row[8] or 'Sistema',
-                'timestamp': row[9]
+                'product_class': row[7],
+                'contract_number': row[8],
+                'username': row[9] or 'Sistema',
+                'timestamp': row[10]
             })
         
         conn.close()
@@ -1167,22 +1297,18 @@ def get_history():
             'history': history,
             'total': len(history)
         })
-        
+    
     except Exception as e:
         logger.error(f"Error obteniendo historial: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 if __name__ == '__main__':
-    print("🚀 Iniciando GenieACS WiFi Manager MEJORADO...")
+    print("🚀 Iniciando GenieACS WiFi Manager")
     print(f"📡 Servidor GenieACS: {GENIEACS_URL}")
-    print("🔐 Sistema de login implementado")
-    print("📊 Historial de usuarios incluido")
-    print("🔍 Búsqueda inteligente implementada")
-    print("⚡ Clasificación Configured/Unconfigured")
     
     # Inicializar base de datos
     init_database()
-    print("✅ Base de datos inicializada con usuarios")
+    print("✅ Base de datos inicializada con contratos")
     
     # Probar conexión con GenieACS
     try:
@@ -1190,12 +1316,14 @@ if __name__ == '__main__':
         if devices:
             configured_count = len([d for d in devices if d.get('configured', False)])
             unconfigured_count = len([d for d in devices if not d.get('configured', False)])
+            contracts_count = len([d for d in devices if d.get('contract_number')])
             total_networks = sum(len(d.get('wifi_networks', [])) for d in devices)
             product_classes = set(d.get('product_class') for d in devices if d.get('product_class'))
             
             print(f"📊 Dispositivos cargados: {len(devices)}")
             print(f"✅ Configurados: {configured_count}")
-            print(f"⚙️  No configurados: {unconfigured_count}")
+            print(f"⚙️ No configurados: {unconfigured_count}")
+            print(f"📋 Con contrato: {contracts_count}")
             print(f"🔧 Product Classes: {len(product_classes)} tipos")
             print(f"📶 Redes WiFi totales: {total_networks}")
         else:
@@ -1205,15 +1333,6 @@ if __name__ == '__main__':
     
     print(f"\n🌐 Servidor disponible en: http://localhost:5000")
     print("🔐 Usuario por defecto: admin / admin123")
-    print("✅ Sistema listo con todas las mejoras!")
-    
-    print("\n🔥 NUEVAS FUNCIONALIDADES:")
-    print(" • 🎯 Búsqueda inteligente unificada")
-    print(" • ⚡ Clasificación automática Configured/Unconfigured")
-    print(" • 🔧 Device cards mejoradas con IP/MAC")
-    print(" • 👁️ Manejo consistente de contraseñas")
-    print(" • 📋 Historial corregido y funcional")
-    print(" • 🚪 Logout centralizado en sidebar")
     
     # Ejecutar servidor
     app.run(debug=True, host='0.0.0.0', port=5000)
