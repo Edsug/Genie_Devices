@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GenieACS WiFi Manager</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <!-- Header -->
@@ -17,16 +17,19 @@
                         <i class="fas fa-bars"></i>
                     </button>
                     <div class="header-title">
-                        <h1><i class="fas fa-wifi"></i> GenieACS Manager</h1>
-                        <p>Gestión avanzada de dispositivos WiFi </p>
+                        <h1>
+                            <i class="fas fa-wifi"></i>
+                            WiFi Manager
+                        </h1>
+                        <p>Gestión de dispositivos GenieACS</p>
                     </div>
                 </div>
                 <div class="header-right">
-                    <div class="user-info">
+                    <div class="user-info" id="currentUser">
                         <i class="fas fa-user"></i>
-                        <span id="currentUser">Cargando...</span>
+                        <span>Cargando...</span>
                     </div>
-                    <button id="reloadBtn" class="btn btn-primary btn-sm">
+                    <button id="reloadBtn" class="btn btn-outline btn-sm">
                         <i class="fas fa-sync-alt"></i>
                         Recargar
                     </button>
@@ -41,7 +44,26 @@
         <section class="search-section">
             <div class="search-card">
                 <div class="search-header">
-                    <h3><i class="fas fa-search"></i> Búsqueda </h3>
+                    <h3>
+                        <i class="fas fa-search"></i>
+                        Búsqueda
+                    </h3>
+                    <div class="navigation-section">
+                        <div class="navigation-toggle">
+                            <button class="nav-btn active" data-filter="all">
+                                <i class="fas fa-globe"></i>
+                                Todos
+                            </button>
+                            <button class="nav-btn" data-filter="configured">
+                                <i class="fas fa-check-circle"></i>
+                                Configurados
+                            </button>
+                            <button class="nav-btn" data-filter="unconfigured">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                No Configurados
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="search-filters">
@@ -49,9 +71,8 @@
                         <label for="smartSearchInput">Buscar por contrato, serial, modelo, IP o SSID</label>
                         <div class="search-box">
                             <i class="fas fa-search"></i>
-                            <input type="text" id="smartSearchInput" 
-                                   placeholder="Ingresa contrato, número de serie, modelo, IP o nombre de red...">
-                            <button type="button" id="clearSmartBtn" class="clear-btn">
+                            <input type="text" id="smartSearchInput" placeholder="Ingresa tu búsqueda...">
+                            <button id="clearSmartBtn" class="clear-btn">
                                 <i class="fas fa-times"></i>
                             </button>
                         </div>
@@ -60,115 +81,213 @@
             </div>
         </section>
 
-        <!-- Navigation Buttons -->
-        <section class="navigation-section">
-            <div class="navigation-toggle">
-                <button id="showConfigured" class="nav-btn active" data-filter="configured">
-                    <i class="fas fa-check-circle"></i>
-                    <span>Configurados</span>
-                    <div class="nav-indicator"></div>
-                </button>
-                <button id="showUnconfigured" class="nav-btn" data-filter="unconfigured">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <span>Sin Configurar</span>
-                    <div class="nav-indicator"></div>
-                </button>
-                <button id="showAll" class="nav-btn" data-filter="all">
-                    <i class="fas fa-list"></i>
-                    <span>Todos</span>
-                    <div class="nav-indicator"></div>
-                </button>
+        <!-- Results Section -->
+        <section class="results-section">
+            <!-- Loading State -->
+            <div id="loadingState" class="state-container">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Cargando dispositivos desde GenieACS...</p>
             </div>
-        </section>
 
-        <!-- Loading State -->
-        <div id="loadingState" class="state-container" style="display: none;">
-            <i class="fas fa-spinner fa-spin"></i>
-            <p>Cargando dispositivos desde GenieACS...</p>
-        </div>
-
-        <!-- Error State -->
-        <div id="errorState" class="state-container" style="display: none;">
-            <i class="fas fa-exclamation-triangle"></i>
-            <p>Error al cargar los datos</p>
-            <button class="btn btn-primary" onclick="location.reload()">Reintentar</button>
-        </div>
-
-        <!-- Empty State -->
-        <div id="emptyState" class="state-container" style="display: none;">
-            <i class="fas fa-search"></i>
-            <p>No se encontraron dispositivos</p>
-        </div>
-
-        <!-- Results Section - Configured -->
-        <section id="configuredSection" class="results-section" style="display: none;">
-            <div class="results-header">
-                <h3><i class="fas fa-check-circle"></i> Dispositivos Configurados</h3>
-                <p class="section-count" id="configuredCount">0 dispositivos</p>
+            <!-- Error State -->
+            <div id="errorState" class="state-container" style="display: none;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p>Error al cargar los datos</p>
             </div>
-            <div id="configuredGrid" class="devices-grid"></div>
-        </section>
 
-        <!-- Results Section - Unconfigured -->
-        <section id="unconfiguredSection" class="results-section" style="display: none;">
-            <div class="results-header">
-                <h3><i class="fas fa-exclamation-triangle"></i> Dispositivos Sin Configurar</h3>
-                <p class="section-count" id="unconfiguredCount">0 dispositivos</p>
+            <!-- Empty State -->
+            <div id="emptyState" class="state-container" style="display: none;">
+                <i class="fas fa-search"></i>
+                <p>No se encontraron dispositivos</p>
             </div>
-            <div id="unconfiguredGrid" class="devices-grid"></div>
+
+            <!-- Configured Devices -->
+            <div id="configuredSection" style="display: none;">
+                <div class="results-header">
+                    <h3>
+                        <i class="fas fa-check-circle" style="color: var(--color-success);"></i>
+                        Dispositivos Configurados
+                    </h3>
+                    <p id="configuredCount" class="section-count">0 dispositivos</p>
+                </div>
+                <div id="configuredGrid" class="devices-grid"></div>
+            </div>
+
+            <!-- Unconfigured Devices -->
+            <div id="unconfiguredSection" style="display: none;">
+                <div class="results-header">
+                    <h3>
+                        <i class="fas fa-exclamation-triangle" style="color: var(--color-warning);"></i>
+                        Dispositivos No Configurados
+                    </h3>
+                    <p id="unconfiguredCount" class="section-count">0 dispositivos</p>
+                </div>
+                <div id="unconfiguredGrid" class="devices-grid"></div>
+            </div>
         </section>
     </main>
 
     <!-- Sidebar -->
-    <div id="sidebarOverlay" class="sidebar-overlay"></div>
-    <nav id="sidebar" class="sidebar">
+    <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-            <h3><i class="fas fa-cogs"></i> Menú</h3>
+            <h3>
+                <i class="fas fa-cog"></i>
+                Panel de Control
+            </h3>
             <button id="closeSidebarBtn" class="sidebar-close">
                 <i class="fas fa-times"></i>
             </button>
         </div>
         
         <div class="sidebar-content">
+            <!-- Sección de Administración -->
             <div class="sidebar-section">
-                <h4>Herramientas</h4>
+                <h4>Administración</h4>
+                <button id="usersBtn" class="sidebar-btn">
+                    <i class="fas fa-users"></i>
+                    <div>
+                        Gestión de Usuarios
+                        <small>Crear y administrar usuarios del sistema</small>
+                    </div>
+                </button>
                 <button id="historyBtn" class="sidebar-btn">
                     <i class="fas fa-history"></i>
                     <div>
-                        <span>Historial de Cambios</span>
+                        Historial de Cambios
                         <small>Ver registro completo de modificaciones</small>
                     </div>
                 </button>
             </div>
-            
+
+            <!-- Sección de Configuración -->
             <div class="sidebar-section">
-                <h4>Usuario</h4>
+                <h4>Configuración</h4>
+                <div class="theme-selector">
+                    <label>Tema de la interfaz</label>
+                    <div class="theme-buttons">
+                        <button class="theme-btn" data-theme="light">
+                            <i class="fas fa-sun"></i>
+                            Claro
+                        </button>
+                        <button class="theme-btn" data-theme="dark">
+                            <i class="fas fa-moon"></i>
+                            Oscuro
+                        </button>
+                        <button class="theme-btn active" data-theme="system">
+                            <i class="fas fa-desktop"></i>
+                            Sistema
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sección de Sesión -->
+            <div class="sidebar-section">
+                <h4>Sesión</h4>
                 <button id="logoutBtn" class="sidebar-btn logout-btn">
                     <i class="fas fa-sign-out-alt"></i>
                     <div>
-                        <span>Cerrar Sesión</span>
-                        <small>Salir del sistema</small>
+                        Cerrar Sesión
+                        <small>Salir del sistema de forma segura</small>
                     </div>
                 </button>
             </div>
         </div>
-    </nav>
+    </aside>
 
-    <!-- Edit Contract Modal -->
+    <!-- Overlay para sidebar -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+    <!-- Modal: Network Details -->
+    <div id="networkDetailsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>
+                    <i class="fas fa-wifi"></i>
+                    Detalles de Red WiFi
+                </h2>
+                <button class="close" onclick="closeModal('networkDetailsModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="network-current-config">
+                    <h4>
+                        <i class="fas fa-info-circle"></i>
+                        Configuración Actual
+                    </h4>
+                    <div class="detail-row">
+                        <label>Dispositivo:</label>
+                        <span id="detailDeviceSerial">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Modelo:</label>
+                        <span id="detailDeviceProduct">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Banda:</label>
+                        <span id="detailNetworkBand">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>SSID:</label>
+                        <span id="detailNetworkSSID">-</span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Contraseña:</label>
+                        <span id="detailNetworkPassword">-</span>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="editSSIDBtn" class="btn btn-secondary">
+                        <i class="fas fa-wifi"></i>
+                        Cambiar SSID
+                    </button>
+                    <button id="editPasswordBtn" class="btn btn-primary">
+                        <i class="fas fa-key"></i>
+                        Cambiar Contraseña
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Contract -->
     <div id="editContractModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-file-contract"></i> Editar Contrato</h2>
-                <button class="close" onclick="closeModal('editContractModal')">&times;</button>
+                <h2>
+                    <i class="fas fa-file-contract"></i>
+                    Editar Número de Contrato
+                </h2>
+                <button class="close" onclick="closeModal('editContractModal')">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
                 <form id="editContractForm">
+                    <div class="technical-details">
+                        <h4>
+                            <i class="fas fa-info-circle"></i>
+                            Información del Dispositivo
+                        </h4>
+                        <div class="detail-row">
+                            <label>Serial:</label>
+                            <span id="editContractSerial">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <label>Modelo:</label>
+                            <span id="editContractProduct">-</span>
+                        </div>
+                    </div>
+
                     <div class="form-group">
-                        <label for="contractInput">Número de Contrato:</label>
+                        <label for="contractInput">Número de Contrato</label>
                         <input type="text" id="contractInput" class="form-control" 
                                placeholder="Ingresa el número de contrato">
-                        <small class="form-help">Este contrato será usado para identificar rápidamente el dispositivo</small>
+                        <small class="form-help">Este número se almacena localmente y no se envía al dispositivo</small>
                     </div>
+
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('editContractModal')">
                             Cancelar
@@ -183,51 +302,35 @@
         </div>
     </div>
 
-    <!-- Network Details Modal -->
-    <div id="networkDetailsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="networkModalTitle"><i class="fas fa-wifi"></i> Detalles de Red</h2>
-                <button class="close" onclick="closeModal('networkDetailsModal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="network-details-content" id="networkDetailsContent">
-                    <!-- Contenido técnico se carga dinámicamente -->
-                </div>
-                <div class="modal-actions">
-                    <button id="editSSIDBtn" class="btn btn-secondary">
-                        <i class="fas fa-edit"></i> Editar SSID
-                    </button>
-                    <button id="editPasswordBtn" class="btn btn-primary">
-                        <i class="fas fa-key"></i> Cambiar Contraseña
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Edit SSID Modal -->
+    <!-- Modal: Edit SSID -->
     <div id="editSSIDModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-wifi"></i> Editar SSID</h2>
-                <button class="close" onclick="closeModal('editSSIDModal')">&times;</button>
+                <h2>
+                    <i class="fas fa-wifi"></i>
+                    Cambiar SSID
+                </h2>
+                <button class="close" onclick="closeModal('editSSIDModal')">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
                 <form id="editSSIDForm">
                     <div class="form-group">
-                        <label for="ssidInput">Nombre de Red (SSID):</label>
+                        <label for="ssidInput">Nuevo SSID</label>
                         <input type="text" id="ssidInput" class="form-control" 
-                               placeholder="Ingresa el nuevo SSID" maxlength="32" required>
+                               placeholder="Ingresa el nuevo nombre de red" 
+                               maxlength="32" required>
                         <small class="form-help">Máximo 32 caracteres</small>
                     </div>
+
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('editSSIDModal')">
                             Cancelar
                         </button>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save"></i>
-                            Actualizar SSID
+                            Aplicar Cambios
                         </button>
                     </div>
                 </form>
@@ -235,33 +338,40 @@
         </div>
     </div>
 
-    <!-- Edit Password Modal -->
+    <!-- Modal: Edit Password -->
     <div id="editPasswordModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-key"></i> Cambiar Contraseña</h2>
-                <button class="close" onclick="closeModal('editPasswordModal')">&times;</button>
+                <h2>
+                    <i class="fas fa-key"></i>
+                    Cambiar Contraseña WiFi
+                </h2>
+                <button class="close" onclick="closeModal('editPasswordModal')">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
                 <form id="editPasswordForm">
                     <div class="form-group">
-                        <label for="passwordInput">Nueva Contraseña:</label>
+                        <label for="passwordInput">Nueva Contraseña</label>
                         <div class="password-input">
                             <input type="password" id="passwordInput" class="form-control" 
-                                   placeholder="Ingresa la nueva contraseña" minlength="8" maxlength="63">
-                            <button type="button" id="passwordToggleEdit" class="password-toggle">
+                                   placeholder="Ingresa la nueva contraseña" 
+                                   minlength="8" maxlength="63">
+                            <button type="button" class="password-toggle" data-target="passwordInput">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
-                        <small class="form-help">Entre 8 y 63 caracteres. Déjalo vacío para quitar la contraseña.</small>
+                        <small class="form-help">Entre 8 y 63 caracteres. Deja vacío para quitar contraseña.</small>
                     </div>
+
                     <div class="form-actions">
                         <button type="button" class="btn btn-secondary" onclick="closeModal('editPasswordModal')">
                             Cancelar
                         </button>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save"></i>
-                            Actualizar Contraseña
+                            Aplicar Cambios
                         </button>
                     </div>
                 </form>
@@ -269,70 +379,148 @@
         </div>
     </div>
 
-    <!-- History Modal -->
+    <!-- Modal: History -->
     <div id="historyModal" class="modal history-modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-history"></i> Historial de Cambios</h2>
-                <button class="close" onclick="closeModal('historyModal')">&times;</button>
+                <h2>
+                    <i class="fas fa-history"></i>
+                    Historial de Cambios
+                </h2>
+                <button class="close" onclick="closeModal('historyModal')">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
                 <div class="history-filters">
                     <div class="filters-grid">
                         <div class="filter-group">
-                            <label for="historySSIDFilter">SSID:</label>
+                            <label for="historySSIDFilter">SSID</label>
                             <input type="text" id="historySSIDFilter" class="form-control" 
                                    placeholder="Filtrar por SSID">
                         </div>
                         <div class="filter-group">
-                            <label for="historyContractFilter">Contrato:</label>
+                            <label for="historyContractFilter">Contrato</label>
                             <input type="text" id="historyContractFilter" class="form-control" 
                                    placeholder="Filtrar por contrato">
                         </div>
                         <div class="filter-group">
-                            <label for="historyProductClassFilter">Modelo:</label>
+                            <label for="historyProductClassFilter">Modelo</label>
                             <input type="text" id="historyProductClassFilter" class="form-control" 
                                    placeholder="Filtrar por modelo">
                         </div>
                         <div class="filter-group">
-                            <label for="historyUserFilter">Usuario:</label>
+                            <label for="historyUserFilter">Usuario</label>
                             <input type="text" id="historyUserFilter" class="form-control" 
                                    placeholder="Filtrar por usuario">
                         </div>
                     </div>
                     <div class="filter-actions">
                         <button id="historySearchBtn" class="btn btn-primary">
-                            <i class="fas fa-search"></i> Buscar
+                            <i class="fas fa-search"></i>
+                            Buscar
                         </button>
                         <button id="clearHistoryBtn" class="btn btn-secondary">
-                            <i class="fas fa-times"></i> Limpiar
+                            <i class="fas fa-eraser"></i>
+                            Limpiar
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="history-content">
-                    <div id="loadingHistory" class="loading-history" style="display: none;">
+                    <div id="loadingHistory" class="loading-history">
                         <i class="fas fa-spinner fa-spin"></i>
                         <p>Cargando historial...</p>
                     </div>
                     <div id="historyList" class="history-list">
-                        <p class="empty-history">No se encontraron cambios en el historial</p>
+                        <p class="text-center text-gray-500">No se encontraron cambios en el historial</p>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Confirmation Modal -->
+    <!-- Modal: Users Management -->
+    <div id="usersModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>
+                    <i class="fas fa-users"></i>
+                    Gestión de Usuarios
+                </h2>
+                <button class="close" onclick="closeModal('usersModal')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="loadingUsers" class="loading-history">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Cargando usuarios...</p>
+                </div>
+                
+                <!-- Create User Form (initially hidden) -->
+                <div id="createUserDiv" class="create-user-form" style="display: none;">
+                    <h4>
+                        <i class="fas fa-user-plus"></i>
+                        Crear Nuevo Usuario
+                    </h4>
+                    <form id="createUserForm">
+                        <div class="form-group">
+                            <label for="newUsername">Nombre de Usuario</label>
+                            <input type="text" id="newUsername" class="form-control" 
+                                   placeholder="Ingresa el nombre de usuario" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="newUserPassword">Contraseña</label>
+                            <div class="password-input">
+                                <input type="password" id="newUserPassword" class="form-control" 
+                                       placeholder="Ingresa la contraseña" minlength="6" required>
+                                <button type="button" class="password-toggle" data-target="newUserPassword">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                            <small class="form-help">Mínimo 6 caracteres</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="newUserRole">Rol del Usuario</label>
+                            <select id="newUserRole" class="form-control" required>
+                                <option value="callcenter">Call Center</option>
+                            </select>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary" onclick="hideCreateUserForm()">
+                                Cancelar
+                            </button>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-user-plus"></i>
+                                Crear Usuario
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div id="usersList" class="users-container">
+                    <!-- Users list will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Confirmation -->
     <div id="confirmModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2><i class="fas fa-exclamation-triangle"></i> Confirmar Acción</h2>
-                <button class="close" onclick="closeModal('confirmModal')">&times;</button>
+                <h2>
+                    <i class="fas fa-question-circle"></i>
+                    Confirmar Acción
+                </h2>
+                <button class="close" onclick="closeModal('confirmModal')">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
                 <p id="confirmMessage">¿Está seguro de realizar esta acción?</p>
-                <div class="form-actions">
+                <div class="modal-actions">
                     <button class="btn btn-secondary" onclick="closeModal('confirmModal')">
                         Cancelar
                     </button>
@@ -344,9 +532,6 @@
         </div>
     </div>
 
-    <!-- Notification Container -->
-    <div id="notificationContainer"></div>
-
-    <script src="/static/script.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
