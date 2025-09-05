@@ -107,7 +107,7 @@ DEVICE_KNOWLEDGE_BASE = {
             "password_alt": "InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.PreSharedKey"
         },
         "ip_param": "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.ExternalIPAddress",
-        "mac_param": "InternetGatewayDevice.LANDevice.1.WANConnectionDevice.1.WANIPConnection.1.MACAddress"
+        "mac_param": "InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.MACAddress"
     },
     "HG114AT": {
         "2.4GHz": {
@@ -188,7 +188,6 @@ def migrate_database():
     """Migrar base de datos para agregar columnas faltantes"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
     try:
         # Verificar si la columna username existe en change_history
         cursor.execute("PRAGMA table_info(change_history)")
@@ -197,14 +196,13 @@ def migrate_database():
         if 'username' not in columns:
             logger.info("🔧 Migrando base de datos: agregando columna 'username'")
             cursor.execute('ALTER TABLE change_history ADD COLUMN username TEXT')
-            
+        
         if 'user_id' not in columns:
             logger.info("🔧 Migrando base de datos: agregando columna 'user_id'")
             cursor.execute('ALTER TABLE change_history ADD COLUMN user_id INTEGER')
-            
+        
         conn.commit()
         logger.info("✅ Migración de base de datos completada")
-        
     except Exception as e:
         logger.error(f"❌ Error en migración de base de datos: {e}")
     finally:
@@ -282,9 +280,29 @@ def init_database():
     
     conn.commit()
     conn.close()
+
+# Ejecutar migraciones
+migrate_database()
+
+def is_device_configured(serial_number):
+    """Verificar si un dispositivo está configurado (tiene cambios de contraseña en ambas redes)"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
     
-    # Ejecutar migraciones
-    migrate_database()
+    # Verificar si tiene cambios de contraseña en ambas bandas
+    cursor.execute('''
+        SELECT DISTINCT band FROM change_history 
+        WHERE serial_number = ? AND change_type = 'PASSWORD'
+    ''', (serial_number,))
+    
+    bands_changed = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    
+    # Un dispositivo está configurado si tiene cambios en ambas bandas (2.4GHz y 5GHz)
+    has_2_4 = '2.4GHz' in bands_changed
+    has_5 = '5GHz' in bands_changed
+    
+    return has_2_4 and has_5
 
 def get_devices_from_genieacs():
     """Obtener dispositivos directamente desde GenieACS API"""
@@ -373,6 +391,7 @@ def extract_wifi_networks(device_info):
     
     # Extraer IP y MAC
     ip, mac = extract_ip_mac_for_product_class(igw, product_class)
+    
     if not ip or ip == "0.0.0.0":
         return [], ip, mac
     
@@ -392,6 +411,7 @@ def extract_wifi_networks(device_info):
 def extract_ip_mac_for_product_class(igw, product_class):
     """Extraer IP/MAC usando configuración específica del Product Class"""
     config = DEVICE_KNOWLEDGE_BASE[product_class]
+    
     ip_path = config["ip_param"].split('.')[1:]
     mac_path = config["mac_param"].split('.')[1:]
     
@@ -428,7 +448,6 @@ def extract_networks_by_knowledge(wlan_configs, product_class, serial_number):
         elif network['band'] == '5GHz' and not has_5:
             final_networks.append(network)
             has_5 = True
-        
         if has_2_4 and has_5:
             break
     
@@ -441,7 +460,7 @@ def extract_standard_networks(wlan_configs, config, product_class, serial_number
     for band in ["2.4GHz", "5GHz"]:
         if band not in config:
             continue
-            
+        
         band_config = config[band]
         wlan_index = band_config["wlan_config"]
         
@@ -528,14 +547,17 @@ def extract_igd_networks(wlan_configs, config, serial_number):
 
 def extract_password(wlan_config, band_config):
     """Extraer contraseña usando múltiples métodos"""
+    # Intentar KeyPassphrase
     password = safe_get_value(wlan_config, ['KeyPassphrase'])
     if password:
         return password
     
+    # Intentar PreSharedKey
     password = safe_get_value(wlan_config, ['PreSharedKey'])
     if password:
         return password
     
+    # Buscar en objetos PreSharedKey
     psk_obj = wlan_config.get('PreSharedKey', {})
     if isinstance(psk_obj, dict):
         for key, value in psk_obj.items():
@@ -571,10 +593,11 @@ def merge_with_stored_passwords(networks, serial_number):
     
     for network in networks:
         cursor.execute('''
-            SELECT password FROM wifi_passwords 
+            SELECT password FROM wifi_passwords
             WHERE serial_number = ? AND band = ?
         ''', (serial_number, network['band']))
         stored_password = cursor.fetchone()
+        
         if stored_password and stored_password[0]:
             network['password'] = stored_password[0]
     
@@ -585,11 +608,13 @@ def store_password(serial_number, band, ssid, password):
     """Almacenar contraseña en la base de datos"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
     cursor.execute('''
-        INSERT OR REPLACE INTO wifi_passwords 
+        INSERT OR REPLACE INTO wifi_passwords
         (serial_number, band, ssid, password, updated_at)
         VALUES (?, ?, ?, ?, ?)
     ''', (serial_number, band, ssid, password, datetime.now()))
+    
     conn.commit()
     conn.close()
 
@@ -597,11 +622,13 @@ def store_change_history(serial_number, product_class, band, change_type, old_va
     """Almacenar historial de cambios con información del usuario"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
     cursor.execute('''
-        INSERT INTO change_history 
+        INSERT INTO change_history
         (serial_number, product_class, band, change_type, old_value, new_value, ssid, user_id, username, timestamp)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (serial_number, product_class, band, change_type, old_value, new_value, ssid, user_id, username, datetime.now()))
+    
     conn.commit()
     conn.close()
 
@@ -627,6 +654,9 @@ def load_devices_from_genieacs():
         wifi_networks, ip, mac = extract_wifi_networks(device_info)
         
         if wifi_networks and ip and ip != "0.0.0.0":
+            # Determinar si está configurado
+            configured = is_device_configured(device_info["serial_number"])
+            
             device_final = {
                 "serial_number": device_info["serial_number"],
                 "product_class": product_class,
@@ -636,7 +666,8 @@ def load_devices_from_genieacs():
                 "mac": mac,
                 "last_inform": device_info["last_inform"],
                 "tags": device_info["tags"],
-                "wifi_networks": wifi_networks
+                "wifi_networks": wifi_networks,
+                "configured": configured
             }
             wifi_devices.append(device_final)
     
@@ -663,6 +694,7 @@ def send_task_to_genieacs_correct_api(device_serial, parameter_name, parameter_v
         auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
         
         logger.info(f"📤 API CORRECTA - Enviando tarea a: {task_url}")
+        
         response = requests.post(
             task_url,
             json=task_data,
@@ -672,13 +704,14 @@ def send_task_to_genieacs_correct_api(device_serial, parameter_name, parameter_v
         )
         
         logger.info(f"📋 Respuesta API: {response.status_code}")
+        
         if response.status_code in [200, 201, 202]:
             logger.info("✅ Tarea creada exitosamente con API correcta")
             return send_connection_request_correct(device_serial)
         else:
             logger.error(f"❌ Error API correcta: {response.status_code} - {response.text}")
             return try_alternative_api(device_serial, parameter_name, parameter_value)
-    
+            
     except Exception as e:
         logger.error(f"❌ Excepción API correcta: {e}")
         return try_alternative_api(device_serial, parameter_name, parameter_value)
@@ -735,7 +768,7 @@ def try_alternative_api(device_serial, parameter_name, parameter_value):
             return send_connection_request_correct(device_serial)
         
         return False, f"Todas las APIs fallaron. Último error: {response.status_code}"
-    
+        
     except Exception as e:
         logger.error(f"❌ Error en APIs alternativas: {e}")
         return False, str(e)
@@ -769,12 +802,13 @@ def send_connection_request_correct(device_serial):
         
         logger.info("✅ Cambios enviados correctamente")
         return True, "Cambios aplicados exitosamente"
-    
+        
     except Exception as e:
         logger.error(f"❌ Error total en connection request: {e}")
         return True, "Cambios aplicados exitosamente"
 
 # Rutas de autenticación
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Página de login"""
@@ -802,7 +836,7 @@ def login():
                 
                 # Actualizar último login - corregir advertencia de datetime
                 cursor.execute('UPDATE users SET last_login = ? WHERE id = ?',
-                            (datetime.now().isoformat(), user[0]))
+                               (datetime.now().isoformat(), user[0]))
                 conn.commit()
                 conn.close()
                 
@@ -812,7 +846,7 @@ def login():
                 conn.close()
                 logger.warning(f"❌ Login fallido: {username}")
                 return jsonify({'success': False, 'message': 'Credenciales incorrectas'}), 401
-        
+                
         except Exception as e:
             logger.error(f"❌ Error en login: {e}")
             return jsonify({'success': False, 'message': 'Error interno del servidor'}), 500
@@ -840,6 +874,7 @@ def current_user():
         return jsonify({'success': False, 'message': 'Usuario no encontrado'}), 401
 
 # Rutas principales
+
 @app.route('/')
 @login_required
 def index():
@@ -852,9 +887,17 @@ def get_devices():
     """Obtener lista de dispositivos WiFi desde GenieACS API"""
     try:
         devices = load_devices_from_genieacs()
+        
+        # Separar en configurados y no configurados
+        configured_devices = [d for d in devices if d.get('configured', False)]
+        unconfigured_devices = [d for d in devices if not d.get('configured', False)]
+        
         return jsonify({
             'success': True,
-            'devices': devices,
+            'devices': {
+                'configured': configured_devices,
+                'unconfigured': unconfigured_devices
+            },
             'total': len(devices),
             'last_update': datetime.now().isoformat()
         })
@@ -863,53 +906,70 @@ def get_devices():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/search')
-@login_required  
+@login_required
 def search_devices():
-    """Buscar dispositivos con filtros avanzados"""
+    """Buscar dispositivos con búsqueda inteligente"""
     try:
-        # Parámetros de búsqueda
-        serial_query = request.args.get('serial', '').lower()
-        product_class_query = request.args.get('product_class', '').lower()
-        ip_query = request.args.get('ip', '').lower()
-        ssid_query = request.args.get('ssid', '').lower()
+        query = request.args.get('query', '').strip().lower()
+        
+        if not query:
+            # Sin query, devolver todos los dispositivos
+            devices = load_devices_from_genieacs()
+            configured_devices = [d for d in devices if d.get('configured', False)]
+            unconfigured_devices = [d for d in devices if not d.get('configured', False)]
+            
+            return jsonify({
+                'success': True,
+                'devices': {
+                    'configured': configured_devices,
+                    'unconfigured': unconfigured_devices
+                },
+                'total': len(devices)
+            })
         
         devices = load_devices_from_genieacs()
+        filtered_devices = []
         
-        if not any([serial_query, product_class_query, ip_query, ssid_query]):
-            filtered_devices = devices
-        else:
-            filtered_devices = []
-            for device in devices:
-                # Filtro por serial
-                if serial_query and serial_query not in device.get('serial_number', '').lower():
-                    continue
-                
-                # Filtro por product class
-                if product_class_query and product_class_query not in device.get('product_class', '').lower():
-                    continue
-                
-                # Filtro por IP
-                if ip_query and ip_query not in device.get('ip', '').lower():
-                    continue
-                
-                # Filtro por SSID
-                if ssid_query:
-                    ssid_found = False
-                    for network in device.get('wifi_networks', []):
-                        if ssid_query in network.get('ssid', '').lower():
-                            ssid_found = True
-                            break
-                    if not ssid_found:
-                        continue
-                
+        for device in devices:
+            # Buscar en diferentes campos
+            matches = []
+            
+            # Serial Number
+            if query in device.get('serial_number', '').lower():
+                matches.append('serial')
+            
+            # Product Class
+            if query in device.get('product_class', '').lower():
+                matches.append('product_class')
+            
+            # IP
+            if query in device.get('ip', '').lower():
+                matches.append('ip')
+            
+            # SSID en cualquiera de las redes
+            for network in device.get('wifi_networks', []):
+                if query in network.get('ssid', '').lower():
+                    matches.append('ssid')
+                    break
+            
+            if matches:
+                device['match_types'] = matches
                 filtered_devices.append(device)
+        
+        # Separar en configurados y no configurados
+        configured_devices = [d for d in filtered_devices if d.get('configured', False)]
+        unconfigured_devices = [d for d in filtered_devices if not d.get('configured', False)]
         
         return jsonify({
             'success': True,
-            'devices': filtered_devices,
-            'total': len(filtered_devices)
+            'devices': {
+                'configured': configured_devices,
+                'unconfigured': unconfigured_devices
+            },
+            'total': len(filtered_devices),
+            'query': query
         })
-    
+        
     except Exception as e:
         logger.error(f"Error en búsqueda: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -966,7 +1026,7 @@ def update_ssid(device_serial, band):
             })
         else:
             return jsonify({'success': False, 'message': message}), 500
-    
+            
     except Exception as e:
         logger.error(f"❌ Error actualizando SSID: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1024,7 +1084,7 @@ def update_password(device_serial, band):
             })
         else:
             return jsonify({'success': False, 'message': message}), 500
-    
+            
     except Exception as e:
         logger.error(f"❌ Error actualizando contraseña: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1036,6 +1096,7 @@ def refresh_data():
     try:
         logger.info("🔄 Recargando datos desde GenieACS...")
         devices = load_devices_from_genieacs()
+        
         return jsonify({
             'success': True,
             'message': 'Datos recargados correctamente desde GenieACS',
@@ -1062,7 +1123,7 @@ def get_history():
         query = '''
             SELECT id, serial_number, product_class, band, change_type,
                    old_value, new_value, ssid, username, timestamp
-            FROM change_history 
+            FROM change_history
             WHERE 1=1
         '''
         params = []
@@ -1083,8 +1144,8 @@ def get_history():
         params.append(limit)
         
         cursor.execute(query, params)
-        
         history = []
+        
         for row in cursor.fetchall():
             history.append({
                 'id': row[0],
@@ -1106,17 +1167,18 @@ def get_history():
             'history': history,
             'total': len(history)
         })
-    
+        
     except Exception as e:
         logger.error(f"Error obteniendo historial: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 if __name__ == '__main__':
-    print("🚀 Iniciando GenieACS WiFi Manager CON AUTENTICACIÓN...")
+    print("🚀 Iniciando GenieACS WiFi Manager MEJORADO...")
     print(f"📡 Servidor GenieACS: {GENIEACS_URL}")
     print("🔐 Sistema de login implementado")
     print("📊 Historial de usuarios incluido")
-    print("🔍 Búsquedas avanzadas disponibles")
+    print("🔍 Búsqueda inteligente implementada")
+    print("⚡ Clasificación Configured/Unconfigured")
     
     # Inicializar base de datos
     init_database()
@@ -1126,9 +1188,14 @@ if __name__ == '__main__':
     try:
         devices = load_devices_from_genieacs()
         if devices:
+            configured_count = len([d for d in devices if d.get('configured', False)])
+            unconfigured_count = len([d for d in devices if not d.get('configured', False)])
             total_networks = sum(len(d.get('wifi_networks', [])) for d in devices)
             product_classes = set(d.get('product_class') for d in devices if d.get('product_class'))
+            
             print(f"📊 Dispositivos cargados: {len(devices)}")
+            print(f"✅ Configurados: {configured_count}")
+            print(f"⚙️  No configurados: {unconfigured_count}")
             print(f"🔧 Product Classes: {len(product_classes)} tipos")
             print(f"📶 Redes WiFi totales: {total_networks}")
         else:
@@ -1138,13 +1205,15 @@ if __name__ == '__main__':
     
     print(f"\n🌐 Servidor disponible en: http://localhost:5000")
     print("🔐 Usuario por defecto: admin / admin123")
-    print("✅ Sistema listo con autenticación completa!")
+    print("✅ Sistema listo con todas las mejoras!")
     
-    print("\n🔥 CORRECCIONES APLICADAS:")
-    print(" • ✅ Base de datos migrada correctamente")
-    print(" • ✅ Historial funcionando con columnas username")
-    print(" • ✅ Advertencia de datetime corregida")
-    print(" • ✅ Frontend con script.js completo")
+    print("\n🔥 NUEVAS FUNCIONALIDADES:")
+    print(" • 🎯 Búsqueda inteligente unificada")
+    print(" • ⚡ Clasificación automática Configured/Unconfigured")
+    print(" • 🔧 Device cards mejoradas con IP/MAC")
+    print(" • 👁️ Manejo consistente de contraseñas")
+    print(" • 📋 Historial corregido y funcional")
+    print(" • 🚪 Logout centralizado en sidebar")
     
     # Ejecutar servidor
     app.run(debug=True, host='0.0.0.0', port=5000)
