@@ -24,13 +24,13 @@ async function initializeApp() {
             window.location.href = '/login';
             return;
         }
-
+        
         // Cargar tema del usuario
         await loadUserTheme();
-
+        
         // Configurar event listeners
         setupEventListeners();
-
+        
         // Cargar datos iniciales
         await loadDevices();
     } catch (error) {
@@ -61,11 +61,10 @@ function updateUserInfo(user) {
     const userInfoElement = document.getElementById('currentUser');
     if (userInfoElement) {
         userInfoElement.innerHTML = `
-            <i class="fas fa-user"></i>
-            <span>
-                <strong>${user.username}</strong>
-                <small>${user.role_name}</small>
-            </span>
+            <div class="user-details">
+                <span class="username">${user.username}</span>
+                <span class="role">${user.role_name}</span>
+            </div>
         `;
     }
 }
@@ -88,7 +87,6 @@ async function loadUserTheme() {
 
 function applyTheme(theme) {
     const root = document.documentElement;
-    
     if (theme === 'system') {
         // Usar preferencia del sistema
         root.removeAttribute('data-color-scheme');
@@ -98,7 +96,6 @@ function applyTheme(theme) {
     }
     
     currentTheme = theme;
-    
     // Actualizar botones de tema
     updateThemeButtons();
 }
@@ -122,7 +119,6 @@ async function changeTheme(theme) {
             },
             body: JSON.stringify({ theme })
         });
-
         if (response.ok) {
             const data = await response.json();
             if (data.success) {
@@ -136,12 +132,56 @@ async function changeTheme(theme) {
     }
 }
 
+// Función para detectar contraseñas válidas
+function isValidPassword(password) {
+    if (!password || password.trim() === '') {
+        return false;
+    }
+    
+    const cleanPassword = password.trim();
+    
+    // Filtrar contraseñas inválidas comunes
+    const invalidPatterns = [
+        /^[*.\-_\s]+$/,           // Solo asteriscos, puntos, guiones, espacios
+        /^[0-9A-Fa-f]{32}$/,      // Hash MD5
+        /^[0-9A-Fa-f]{64}$/,      // Hash SHA256
+        /^\$[0-9]\$.*$/,          // Hash con formato $n$...
+        /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i // UUID
+    ];
+    
+    for (const pattern of invalidPatterns) {
+        if (pattern.test(cleanPassword)) {
+            return false;
+        }
+    }
+    
+    // Debe tener entre 8 y 63 caracteres para WiFi
+    if (cleanPassword.length < 8 || cleanPassword.length > 63) {
+        return false;
+    }
+    
+    return true;
+}
+
+// Función para mostrar contraseña o "Sin contraseña"
+function displayPassword(password, hidden = true) {
+    if (!password || !isValidPassword(password)) {
+        return '<em class="no-password">Sin contraseña</em>';
+    }
+    
+    if (hidden) {
+        return '••••••••';
+    }
+    
+    return password;
+}
+
 function setupEventListeners() {
     // Búsqueda inteligente
     const smartSearchInput = document.getElementById('smartSearchInput');
     const clearSmartBtn = document.getElementById('clearSmartBtn');
     const reloadBtn = document.getElementById('reloadBtn');
-
+    
     if (smartSearchInput) {
         smartSearchInput.addEventListener('input', handleSmartSearch);
         smartSearchInput.addEventListener('keyup', function(e) {
@@ -151,10 +191,10 @@ function setupEventListeners() {
             }
         });
     }
-
+    
     if (clearSmartBtn) clearSmartBtn.addEventListener('click', clearSmartSearch);
     if (reloadBtn) reloadBtn.addEventListener('click', reloadData);
-
+    
     // Botones de navegación
     const navButtons = document.querySelectorAll('.nav-btn');
     navButtons.forEach(btn => {
@@ -164,26 +204,26 @@ function setupEventListeners() {
             filterDevices(filter);
         });
     });
-
-    // Sidebar
+    
+    // Sidebar - CORREGIDO
     const sidebarBtn = document.getElementById('sidebarBtn');
     const sidebar = document.getElementById('sidebar');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
-
+    
     if (sidebarBtn) sidebarBtn.addEventListener('click', toggleSidebar);
     if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
     if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
-
+    
     // Botones del sidebar
     const historyBtn = document.getElementById('historyBtn');
     const usersBtn = document.getElementById('usersBtn');
     const logoutBtn = document.getElementById('logoutBtn');
-
+    
     if (historyBtn) historyBtn.addEventListener('click', openHistoryModal);
     if (usersBtn) usersBtn.addEventListener('click', openUsersModal);
     if (logoutBtn) logoutBtn.addEventListener('click', logout);
-
+    
     // Botones de tema
     const themeButtons = document.querySelectorAll('.theme-btn');
     themeButtons.forEach(btn => {
@@ -192,14 +232,14 @@ function setupEventListeners() {
             changeTheme(theme);
         });
     });
-
+    
     // Búsqueda de historial
     const historySearchBtn = document.getElementById('historySearchBtn');
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-
+    
     if (historySearchBtn) historySearchBtn.addEventListener('click', searchHistory);
     if (clearHistoryBtn) clearHistoryBtn.addEventListener('click', clearHistorySearch);
-
+    
     // Filtros de historial con Enter
     ['historySSIDFilter', 'historyContractFilter', 'historyProductClassFilter', 'historyUserFilter'].forEach(filterId => {
         const element = document.getElementById(filterId);
@@ -211,18 +251,18 @@ function setupEventListeners() {
             });
         }
     });
-
+    
     // Formularios
     const editContractForm = document.getElementById('editContractForm');
     const editSSIDForm = document.getElementById('editSSIDForm');
     const editPasswordForm = document.getElementById('editPasswordForm');
     const createUserForm = document.getElementById('createUserForm');
-
+    
     if (editContractForm) editContractForm.addEventListener('submit', handleContractSubmit);
     if (editSSIDForm) editSSIDForm.addEventListener('submit', handleSSIDSubmit);
     if (editPasswordForm) editPasswordForm.addEventListener('submit', handlePasswordSubmit);
     if (createUserForm) createUserForm.addEventListener('submit', handleCreateUserSubmit);
-
+    
     // Toggle contraseña en modales
     const passwordToggles = document.querySelectorAll('.password-toggle');
     passwordToggles.forEach(toggle => {
@@ -231,11 +271,11 @@ function setupEventListeners() {
             togglePasswordVisibility(targetId, this);
         });
     });
-
+    
     // Botones del modal de detalles
     const editSSIDBtn = document.getElementById('editSSIDBtn');
     const editPasswordBtn = document.getElementById('editPasswordBtn');
-
+    
     if (editSSIDBtn) {
         editSSIDBtn.addEventListener('click', function() {
             if (currentNetwork) {
@@ -243,7 +283,7 @@ function setupEventListeners() {
             }
         });
     }
-
+    
     if (editPasswordBtn) {
         editPasswordBtn.addEventListener('click', function() {
             if (currentNetwork) {
@@ -251,11 +291,11 @@ function setupEventListeners() {
             }
         });
     }
-
+    
     // Confirmación
     const confirmAction = document.getElementById('confirmAction');
     if (confirmAction) confirmAction.addEventListener('click', executeConfirmedAction);
-
+    
     // Cerrar modales con ESC
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
@@ -263,7 +303,7 @@ function setupEventListeners() {
             closeSidebar();
         }
     });
-
+    
     // Cerrar modales al hacer click fuera
     window.addEventListener('click', function(e) {
         if (e.target.classList.contains('modal')) {
@@ -293,7 +333,6 @@ function setActiveFilter(filter) {
 
 function filterDevices(filter) {
     const query = document.getElementById('smartSearchInput')?.value?.trim() || '';
-    
     if (query) {
         // Si hay búsqueda, usar search con filtro
         performSmartSearch(filter);
@@ -312,20 +351,17 @@ function filterDevices(filter) {
 // Funciones de búsqueda inteligente
 async function handleSmartSearch(e) {
     const query = e.target.value.trim();
-    
     if (!query) {
         filterDevices(currentFilter);
         return;
     }
-
+    
     try {
         const response = await fetch(`${API_BASE}/search?query=${encodeURIComponent(query)}&filter=${currentFilter}`);
         const data = await response.json();
-        
         if (data.success) {
             renderDevices(data.devices);
             const totalResults = data.devices.configured.length + data.devices.unconfigured.length;
-            
             if (totalResults > 0) {
                 showNotification(`Se encontraron ${totalResults} dispositivo${totalResults !== 1 ? 's' : ''}`, 'success');
             }
@@ -339,15 +375,13 @@ async function handleSmartSearch(e) {
 async function performSmartSearch(filter = null) {
     const query = document.getElementById('smartSearchInput')?.value?.trim() || '';
     const searchFilter = filter || currentFilter;
-
+    
     try {
         const response = await fetch(`${API_BASE}/search?query=${encodeURIComponent(query)}&filter=${searchFilter}`);
         const data = await response.json();
-        
         if (data.success) {
             renderDevices(data.devices);
             const totalResults = data.devices.configured.length + data.devices.unconfigured.length;
-            
             if (totalResults === 0) {
                 showNotification('No se encontraron dispositivos con ese criterio', 'info');
             } else {
@@ -363,10 +397,8 @@ async function performSmartSearch(filter = null) {
 function clearSmartSearch() {
     const smartSearchInput = document.getElementById('smartSearchInput');
     const clearSmartBtn = document.getElementById('clearSmartBtn');
-    
     if (smartSearchInput) smartSearchInput.value = '';
     if (clearSmartBtn) clearSmartBtn.classList.remove('visible');
-    
     filterDevices(currentFilter);
 }
 
@@ -376,7 +408,6 @@ async function loadDevices() {
     try {
         const response = await fetch(`${API_BASE}/devices`);
         const data = await response.json();
-        
         if (data.success) {
             devices = data.devices;
             filterDevices(currentFilter);
@@ -397,11 +428,11 @@ async function loadDevices() {
 async function reloadData() {
     const reloadBtn = document.getElementById('reloadBtn');
     if (!reloadBtn) return;
-
+    
     const originalText = reloadBtn.innerHTML;
     reloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recargando...';
     reloadBtn.disabled = true;
-
+    
     try {
         await loadDevices();
         showNotification('Datos recargados correctamente', 'success');
@@ -420,7 +451,7 @@ function showLoading() {
     const emptyState = document.getElementById('emptyState');
     const configuredSection = document.getElementById('configuredSection');
     const unconfiguredSection = document.getElementById('unconfiguredSection');
-
+    
     if (loadingState) loadingState.style.display = 'block';
     if (errorState) errorState.style.display = 'none';
     if (emptyState) emptyState.style.display = 'none';
@@ -434,7 +465,7 @@ function showError() {
     const emptyState = document.getElementById('emptyState');
     const configuredSection = document.getElementById('configuredSection');
     const unconfiguredSection = document.getElementById('unconfiguredSection');
-
+    
     if (loadingState) loadingState.style.display = 'none';
     if (errorState) errorState.style.display = 'block';
     if (emptyState) emptyState.style.display = 'none';
@@ -445,7 +476,7 @@ function showError() {
 function showSuccess() {
     const loadingState = document.getElementById('loadingState');
     const errorState = document.getElementById('errorState');
-
+    
     if (loadingState) loadingState.style.display = 'none';
     if (errorState) errorState.style.display = 'none';
 }
@@ -456,7 +487,7 @@ function showEmpty() {
     const emptyState = document.getElementById('emptyState');
     const configuredSection = document.getElementById('configuredSection');
     const unconfiguredSection = document.getElementById('unconfiguredSection');
-
+    
     if (loadingState) loadingState.style.display = 'none';
     if (errorState) errorState.style.display = 'none';
     if (emptyState) emptyState.style.display = 'block';
@@ -464,65 +495,72 @@ function showEmpty() {
     if (unconfiguredSection) unconfiguredSection.style.display = 'none';
 }
 
-// Renderizar dispositivos con clasificación
+// Renderizar dispositivos con separación visual mejorada
 function renderDevices(deviceData) {
     const configuredSection = document.getElementById('configuredSection');
     const unconfiguredSection = document.getElementById('unconfiguredSection');
     const configuredGrid = document.getElementById('configuredGrid');
     const unconfiguredGrid = document.getElementById('unconfiguredGrid');
     const emptyState = document.getElementById('emptyState');
-
+    const sectionSeparator = document.getElementById('sectionSeparator');
+    
     if (!configuredGrid || !unconfiguredGrid) return;
-
+    
     const configured = deviceData.configured || [];
     const unconfigured = deviceData.unconfigured || [];
-
+    
     // Verificar si hay dispositivos
     if (configured.length === 0 && unconfigured.length === 0) {
         showEmpty();
         return;
     }
-
+    
     // Mostrar secciones según filtro activo
     const showConfigured = currentFilter === 'all' || currentFilter === 'configured';
     const showUnconfigured = currentFilter === 'all' || currentFilter === 'unconfigured';
-
+    
     if (configuredSection) {
         configuredSection.style.display = (showConfigured && configured.length > 0) ? 'block' : 'none';
     }
+    
     if (unconfiguredSection) {
         unconfiguredSection.style.display = (showUnconfigured && unconfigured.length > 0) ? 'block' : 'none';
     }
+    
+    // Mostrar separador solo cuando ambas secciones son visibles
+    if (sectionSeparator) {
+        const shouldShowSeparator = currentFilter === 'all' && configured.length > 0 && unconfigured.length > 0;
+        sectionSeparator.style.display = shouldShowSeparator ? 'block' : 'none';
+    }
+    
     if (emptyState) emptyState.style.display = 'none';
-
+    
     // Renderizar dispositivos configurados
     if (showConfigured) {
         configuredGrid.innerHTML = '';
         configured.forEach((device, index) => {
             const deviceCard = createDeviceCard(device);
             configuredGrid.appendChild(deviceCard);
-            
             // Animación escalonada
             setTimeout(() => {
                 deviceCard.classList.add('slide-up');
             }, index * 50);
         });
     }
-
+    
     // Renderizar dispositivos no configurados
     if (showUnconfigured) {
         unconfiguredGrid.innerHTML = '';
         unconfigured.forEach((device, index) => {
             const deviceCard = createDeviceCard(device);
             unconfiguredGrid.appendChild(deviceCard);
-            
             // Animación escalonada
             setTimeout(() => {
                 deviceCard.classList.add('slide-up');
             }, (configured.length + index) * 50);
         });
     }
-
+    
     // Actualizar contadores
     updateSectionCounts(configured.length, unconfigured.length);
 }
@@ -530,11 +568,11 @@ function renderDevices(deviceData) {
 function updateSectionCounts(configuredCount, unconfiguredCount) {
     const configuredCountElem = document.getElementById('configuredCount');
     const unconfiguredCountElem = document.getElementById('unconfiguredCount');
-
+    
     if (configuredCountElem) {
         configuredCountElem.textContent = `${configuredCount} dispositivo${configuredCount !== 1 ? 's' : ''}`;
     }
-
+    
     if (unconfiguredCountElem) {
         unconfiguredCountElem.textContent = `${unconfiguredCount} dispositivo${unconfiguredCount !== 1 ? 's' : ''}`;
     }
@@ -543,23 +581,27 @@ function updateSectionCounts(configuredCount, unconfiguredCount) {
 function createDeviceCard(device) {
     const card = document.createElement('div');
     card.className = 'device-card';
-
+    
     const networks = device.wifi_networks || [];
     const statusClass = device.configured ? 'configured' : 'unconfigured';
     const statusText = device.configured ? 'Configurado' : 'Sin configurar';
     const statusIcon = device.configured ? 'fa-check-circle' : 'fa-exclamation-triangle';
-
-    // Crear botones de redes limpios
+    
+    // Crear botones de redes limpios con contraseñas validadas
     const networksHtml = networks.map(network => createNetworkButtonHtml(device, network)).join('');
-
+    
     card.innerHTML = `
         <div class="device-header-clean">
             <div class="device-title-section">
-                <h4 class="device-title" onclick="openContractModal('${device.serial_number}', '${device.contract_number || ''}', '${device.product_class}')" tabindex="0">
+                <h4 class="device-title" tabindex="0" 
+                    onclick="openDeviceModal('${device.serial_number}')" 
+                    onkeydown="if(event.key==='Enter') openDeviceModal('${device.serial_number}')">
                     ${device.title_ssid || device.serial_number}
                     <i class="fas fa-edit edit-icon"></i>
                 </h4>
-                <div class="device-contract" onclick="openContractModal('${device.serial_number}', '${device.contract_number || ''}', '${device.product_class}')" tabindex="0">
+                <div class="device-contract" tabindex="0" 
+                     onclick="editContract('${device.serial_number}', '${device.contract_number || ''}')"
+                     onkeydown="if(event.key==='Enter') editContract('${device.serial_number}', '${device.contract_number || ''}')">
                     <i class="fas fa-file-contract"></i>
                     <span>${device.contract_number || 'Sin contrato'}</span>
                     <i class="fas fa-edit edit-icon"></i>
@@ -574,26 +616,32 @@ function createDeviceCard(device) {
             ${networksHtml}
         </div>
     `;
-
+    
     return card;
 }
 
 function createNetworkButtonHtml(device, network) {
     const bandClass = network.band === '5GHz' ? 'band-5' : 'band-2-4';
-    const hasPassword = network.password && network.password.trim() !== '';
-    const passwordPreview = hasPassword ? '••••••••' : 'Sin contraseña';
+    const isValidPass = isValidPassword(network.password);
+    const passwordPreview = isValidPass ? '••••••••' : 'Sin contraseña';
+    const toggleIcon = isValidPass ? 'fa-eye' : 'fa-eye-slash';
+    const toggleClass = isValidPass ? '' : 'disabled';
     
     return `
-        <div class="network-button" onclick="openNetworkModal('${device.serial_number}', '${network.band}')">
+        <div class="network-button" 
+             onclick="openNetworkModal('${device.serial_number}', '${network.band}')" 
+             tabindex="0" 
+             onkeydown="if(event.key==='Enter') openNetworkModal('${device.serial_number}', '${network.band}')">
             <div class="network-button-header">
                 <div class="network-button-info">
                     <span class="network-ssid">${network.ssid}</span>
                     <span class="band-badge ${bandClass}">${network.band}</span>
                 </div>
-                <button class="password-quick-toggle ${hasPassword ? 'active' : ''}" 
-                        onclick="event.stopPropagation(); toggleQuickPassword(this, '${device.serial_number}', '${network.band}')"
-                        ${hasPassword ? '' : 'disabled'}>
-                    <i class="fas ${hasPassword ? 'fa-eye' : 'fa-eye-slash'}"></i>
+                <button class="password-quick-toggle ${isValidPass ? '' : 'disabled'}" 
+                        onclick="event.stopPropagation(); toggleNetworkPassword(this, '${device.serial_number}', '${network.band}')" 
+                        ${!isValidPass ? 'disabled' : ''}
+                        aria-label="Mostrar/ocultar contraseña">
+                    <i class="fas ${toggleIcon}"></i>
                 </button>
             </div>
             <div class="network-password-preview">
@@ -604,74 +652,163 @@ function createNetworkButtonHtml(device, network) {
     `;
 }
 
-// Quick password toggle
-let passwordVisible = {};
-
-function toggleQuickPassword(button, serialNumber, band) {
-    const key = `${serialNumber}-${band}`;
-    const isVisible = passwordVisible[key];
+// Funciones mejoradas para toggle de contraseñas
+function toggleNetworkPassword(button, deviceSerial, band) {
+    if (button.disabled) return;
     
-    if (isVisible) {
-        // Ocultar contraseña
-        passwordVisible[key] = false;
-        button.innerHTML = '<i class="fas fa-eye"></i>';
-        
-        // Encontrar y actualizar la preview
-        const preview = button.closest('.network-button').querySelector('.password-preview-text');
-        if (preview) {
-            preview.textContent = '••••••••';
-        }
+    const device = [...devices.configured, ...devices.unconfigured]
+        .find(d => d.serial_number === deviceSerial);
+    
+    if (!device) return;
+    
+    const network = device.wifi_networks.find(n => n.band === band);
+    if (!network || !isValidPassword(network.password)) return;
+    
+    const icon = button.querySelector('i');
+    const previewText = button.closest('.network-button').querySelector('.password-preview-text');
+    
+    const isHidden = icon.classList.contains('fa-eye');
+    
+    if (isHidden) {
+        // Mostrar contraseña
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+        previewText.textContent = network.password;
+        button.classList.add('active');
     } else {
-        // Mostrar contraseña - buscar el dispositivo
-        const device = [...devices.configured, ...devices.unconfigured]
-            .find(d => d.serial_number === serialNumber);
-        
-        if (device) {
-            const network = device.wifi_networks.find(n => n.band === band);
-            if (network && network.password) {
-                passwordVisible[key] = true;
-                button.innerHTML = '<i class="fas fa-eye-slash"></i>';
-                
-                const preview = button.closest('.network-button').querySelector('.password-preview-text');
-                if (preview) {
-                    preview.textContent = network.password;
-                }
-                
-                // Auto-ocultar después de 3 segundos
-                setTimeout(() => {
-                    if (passwordVisible[key]) {
-                        toggleQuickPassword(button, serialNumber, band);
-                    }
-                }, 3000);
-            }
-        }
+        // Ocultar contraseña
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+        previewText.textContent = '••••••••';
+        button.classList.remove('active');
     }
 }
 
-// Modales de edición de contrato
-function openContractModal(serialNumber, currentContract, productClass) {
-    currentDevice = { serial_number: serialNumber, contract_number: currentContract, product_class: productClass };
+// Modales
+function openDeviceModal(serialNumber) {
+    const device = [...devices.configured, ...devices.unconfigured]
+        .find(d => d.serial_number === serialNumber);
     
-    const modal = document.getElementById('editContractModal');
-    const serialElement = document.getElementById('editContractSerial');
-    const productElement = document.getElementById('editContractProduct');
-    const contractInput = document.getElementById('contractInput');
-
-    if (serialElement) serialElement.textContent = serialNumber;
-    if (productElement) productElement.textContent = productClass;
-    if (contractInput) contractInput.value = currentContract || '';
-
-    openModal('editContractModal');
+    if (!device) return;
+    
+    currentDevice = device;
+    
+    // Actualizar contenido del modal
+    document.getElementById('deviceSerial').textContent = device.serial_number;
+    document.getElementById('deviceProduct').textContent = device.product_class;
+    document.getElementById('deviceSoftware').textContent = device.software_version || 'N/A';
+    document.getElementById('deviceHardware').textContent = device.hardware_version || 'N/A';
+    document.getElementById('deviceIP').textContent = device.ip || 'N/A';
+    document.getElementById('deviceMAC').textContent = device.mac || 'N/A';
+    document.getElementById('deviceLastInform').textContent = device.last_inform || 'N/A';
+    document.getElementById('deviceContract').textContent = device.contract_number || 'Sin contrato';
+    
+    openModal('deviceModal');
 }
 
+function openNetworkModal(serialNumber, band) {
+    const device = [...devices.configured, ...devices.unconfigured]
+        .find(d => d.serial_number === serialNumber);
+    
+    if (!device) return;
+    
+    const network = device.wifi_networks.find(n => n.band === band);
+    if (!network) return;
+    
+    currentDevice = device;
+    currentNetwork = network;
+    
+    // Actualizar contenido del modal
+    document.getElementById('networkDevice').textContent = device.serial_number;
+    document.getElementById('networkBand').textContent = network.band;
+    document.getElementById('networkSSID').textContent = network.ssid;
+    
+    const passwordElement = document.getElementById('networkPassword');
+    const isValidPass = isValidPassword(network.password);
+    
+    if (isValidPass) {
+        passwordElement.innerHTML = '<span class="password-hidden">••••••••</span>';
+    } else {
+        passwordElement.innerHTML = '<em class="no-password">Sin contraseña</em>';
+    }
+    
+    // Habilitar/deshabilitar botones según permisos
+    const editSSIDBtn = document.getElementById('editSSIDBtn');
+    const editPasswordBtn = document.getElementById('editPasswordBtn');
+    
+    if (editSSIDBtn && currentUser) {
+        editSSIDBtn.style.display = currentUser.role_level >= 2 ? 'inline-flex' : 'none';
+    }
+    
+    if (editPasswordBtn && currentUser) {
+        editPasswordBtn.style.display = currentUser.role_level >= 1 ? 'inline-flex' : 'none';
+    }
+    
+    openModal('networkModal');
+}
+
+function editContract(serialNumber, currentContract) {
+    if (!currentUser || currentUser.role_level < 1) {
+        showNotification('No tienes permisos para editar contratos', 'error');
+        return;
+    }
+    
+    const device = [...devices.configured, ...devices.unconfigured]
+        .find(d => d.serial_number === serialNumber);
+    
+    if (!device) return;
+    
+    currentDevice = device;
+    
+    document.getElementById('contractDevice').textContent = device.serial_number;
+    document.getElementById('contractCurrent').textContent = currentContract || 'Sin contrato';
+    document.getElementById('contractInput').value = currentContract || '';
+    
+    openModal('contractModal');
+}
+
+function openEditSSIDModal() {
+    if (!currentNetwork) return;
+    
+    document.getElementById('ssidDevice').textContent = currentDevice.serial_number;
+    document.getElementById('ssidBand').textContent = currentNetwork.band;
+    document.getElementById('ssidCurrent').textContent = currentNetwork.ssid;
+    document.getElementById('ssidInput').value = currentNetwork.ssid;
+    
+    closeModal('networkModal');
+    openModal('ssidModal');
+}
+
+function openEditPasswordModal() {
+    if (!currentNetwork) return;
+    
+    document.getElementById('passwordDevice').textContent = currentDevice.serial_number;
+    document.getElementById('passwordBand').textContent = currentNetwork.band;
+    
+    const currentPasswordDiv = document.getElementById('passwordCurrent');
+    const isValidPass = isValidPassword(currentNetwork.password);
+    
+    if (isValidPass) {
+        currentPasswordDiv.innerHTML = '<span class="password-hidden">••••••••</span>';
+    } else {
+        currentPasswordDiv.innerHTML = '<em class="no-password">Sin contraseña actual</em>';
+    }
+    
+    document.getElementById('passwordInput').value = '';
+    
+    closeModal('networkModal');
+    openModal('passwordModal');
+}
+
+// Handlers de formularios
 async function handleContractSubmit(e) {
     e.preventDefault();
     
+    const formData = new FormData(e.target);
+    const newContract = formData.get('contract').trim();
+    
     if (!currentDevice) return;
-
-    const contractInput = document.getElementById('contractInput');
-    const newContract = contractInput.value.trim();
-
+    
     try {
         const response = await fetch(`${API_BASE}/device/${currentDevice.serial_number}/contract`, {
             method: 'PUT',
@@ -680,88 +817,40 @@ async function handleContractSubmit(e) {
             },
             body: JSON.stringify({ contract: newContract })
         });
-
+        
         const data = await response.json();
-
+        
         if (data.success) {
-            showNotification(data.message, 'success');
-            closeModal('editContractModal');
-            await loadDevices(); // Recargar para mostrar cambios
+            showNotification('Contrato actualizado correctamente', 'success');
+            closeModal('contractModal');
+            await loadDevices(); // Recargar para actualizar la vista
         } else {
-            showNotification(data.message, 'error');
+            showNotification(data.message || 'Error actualizando contrato', 'error');
         }
     } catch (error) {
-        console.error('Error actualizando contrato:', error);
-        showNotification('Error actualizando contrato', 'error');
+        console.error('Error:', error);
+        showNotification('Error de conexión', 'error');
     }
-}
-
-// Modales de redes WiFi
-function openNetworkModal(serialNumber, band) {
-    // Buscar dispositivo y red
-    const device = [...devices.configured, ...devices.unconfigured]
-        .find(d => d.serial_number === serialNumber);
-    
-    if (!device) return;
-
-    const network = device.wifi_networks.find(n => n.band === band);
-    if (!network) return;
-
-    currentDevice = device;
-    currentNetwork = network;
-
-    // Llenar modal con datos
-    const modal = document.getElementById('networkDetailsModal');
-    const deviceSerial = document.getElementById('detailDeviceSerial');
-    const deviceProduct = document.getElementById('detailDeviceProduct');
-    const networkBand = document.getElementById('detailNetworkBand');
-    const networkSSID = document.getElementById('detailNetworkSSID');
-    const networkPassword = document.getElementById('detailNetworkPassword');
-
-    if (deviceSerial) deviceSerial.textContent = device.serial_number;
-    if (deviceProduct) deviceProduct.textContent = device.product_class;
-    if (networkBand) networkBand.textContent = network.band;
-    if (networkSSID) networkSSID.textContent = network.ssid;
-    if (networkPassword) {
-        networkPassword.textContent = network.password || 'Sin contraseña configurada';
-    }
-
-    openModal('networkDetailsModal');
-}
-
-function openEditSSIDModal() {
-    if (!currentDevice || !currentNetwork) return;
-
-    const ssidInput = document.getElementById('ssidInput');
-    if (ssidInput) ssidInput.value = currentNetwork.ssid;
-
-    closeModal('networkDetailsModal');
-    openModal('editSSIDModal');
-}
-
-function openEditPasswordModal() {
-    if (!currentDevice || !currentNetwork) return;
-
-    const passwordInput = document.getElementById('passwordInput');
-    if (passwordInput) passwordInput.value = currentNetwork.password || '';
-
-    closeModal('networkDetailsModal');
-    openModal('editPasswordModal');
 }
 
 async function handleSSIDSubmit(e) {
     e.preventDefault();
     
+    const formData = new FormData(e.target);
+    const newSSID = formData.get('ssid').trim();
+    
     if (!currentDevice || !currentNetwork) return;
-
-    const ssidInput = document.getElementById('ssidInput');
-    const newSSID = ssidInput.value.trim();
-
+    
     if (!newSSID) {
         showNotification('El SSID no puede estar vacío', 'error');
         return;
     }
-
+    
+    if (newSSID.length > 32) {
+        showNotification('El SSID no puede tener más de 32 caracteres', 'error');
+        return;
+    }
+    
     try {
         const response = await fetch(`${API_BASE}/device/${currentDevice.serial_number}/wifi/${currentNetwork.band}/ssid`, {
             method: 'PUT',
@@ -770,30 +859,35 @@ async function handleSSIDSubmit(e) {
             },
             body: JSON.stringify({ ssid: newSSID })
         });
-
+        
         const data = await response.json();
-
+        
         if (data.success) {
-            showNotification(data.message, 'success');
-            closeModal('editSSIDModal');
-            await loadDevices(); // Recargar para mostrar cambios
+            showNotification('SSID actualizado correctamente', 'success');
+            closeModal('ssidModal');
+            await loadDevices(); // Recargar para actualizar la vista
         } else {
-            showNotification(data.message, 'error');
+            showNotification(data.message || 'Error actualizando SSID', 'error');
         }
     } catch (error) {
-        console.error('Error actualizando SSID:', error);
-        showNotification('Error actualizando SSID', 'error');
+        console.error('Error:', error);
+        showNotification('Error de conexión', 'error');
     }
 }
 
 async function handlePasswordSubmit(e) {
     e.preventDefault();
     
+    const formData = new FormData(e.target);
+    const newPassword = formData.get('password').trim();
+    
     if (!currentDevice || !currentNetwork) return;
-
-    const passwordInput = document.getElementById('passwordInput');
-    const newPassword = passwordInput.value.trim();
-
+    
+    if (newPassword && (newPassword.length < 8 || newPassword.length > 63)) {
+        showNotification('La contraseña debe tener entre 8 y 63 caracteres', 'error');
+        return;
+    }
+    
     try {
         const response = await fetch(`${API_BASE}/device/${currentDevice.serial_number}/wifi/${currentNetwork.band}/password`, {
             method: 'PUT',
@@ -802,58 +896,82 @@ async function handlePasswordSubmit(e) {
             },
             body: JSON.stringify({ password: newPassword })
         });
-
+        
         const data = await response.json();
-
+        
         if (data.success) {
-            showNotification(data.message, 'success');
-            closeModal('editPasswordModal');
-            await loadDevices(); // Recargar para mostrar cambios
+            showNotification('Contraseña actualizada correctamente', 'success');
+            closeModal('passwordModal');
+            await loadDevices(); // Recargar para actualizar la vista
         } else {
-            showNotification(data.message, 'error');
+            showNotification(data.message || 'Error actualizando contraseña', 'error');
         }
     } catch (error) {
-        console.error('Error actualizando contraseña:', error);
-        showNotification('Error actualizando contraseña', 'error');
+        console.error('Error:', error);
+        showNotification('Error de conexión', 'error');
     }
 }
 
-function togglePasswordVisibility(inputId, toggleButton) {
+// Funciones de toggle de contraseña en modales
+function togglePasswordVisibility(inputId, button) {
     const input = document.getElementById(inputId);
-    if (!input) return;
-
-    const isPassword = input.type === 'password';
-    input.type = isPassword ? 'text' : 'password';
+    const icon = button.querySelector('i');
     
-    const icon = toggleButton.querySelector('i');
-    if (icon) {
-        icon.className = `fas ${isPassword ? 'fa-eye-slash' : 'fa-eye'}`;
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
     }
 }
 
-// Sidebar
+// Funciones de modal
+function openModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'flex';
+        // Enfocar en el primer input si existe
+        const firstInput = modal.querySelector('input:not([type="hidden"])');
+        if (firstInput) {
+            setTimeout(() => firstInput.focus(), 100);
+        }
+    }
+}
+
+function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function closeAllModals() {
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+        modal.style.display = 'none';
+    });
+}
+
+// Sidebar CORREGIDO
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebarOverlay');
     
     if (sidebar && overlay) {
+        sidebarOpen = !sidebarOpen;
+        
         if (sidebarOpen) {
-            closeSidebar();
+            sidebar.classList.add('open');
+            overlay.classList.add('active');
+            document.body.style.overflow = 'hidden'; // Prevenir scroll
         } else {
-            openSidebar();
+            sidebar.classList.remove('open');
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
         }
-    }
-}
-
-function openSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebarOverlay');
-    
-    if (sidebar && overlay) {
-        sidebar.classList.add('open');
-        overlay.classList.add('active');
-        sidebarOpen = true;
-        document.body.style.overflow = 'hidden';
     }
 }
 
@@ -862,17 +980,18 @@ function closeSidebar() {
     const overlay = document.getElementById('sidebarOverlay');
     
     if (sidebar && overlay) {
+        sidebarOpen = false;
         sidebar.classList.remove('open');
         overlay.classList.remove('active');
-        sidebarOpen = false;
         document.body.style.overflow = '';
     }
 }
 
 // Historial
 async function openHistoryModal() {
-    openModal('historyModal');
+    closeSidebar();
     await loadHistory();
+    openModal('historyModal');
 }
 
 async function loadHistory() {
@@ -881,25 +1000,25 @@ async function loadHistory() {
     
     if (loadingHistory) loadingHistory.style.display = 'block';
     if (historyList) historyList.innerHTML = '';
-
+    
     try {
         const response = await fetch(`${API_BASE}/history`);
         const data = await response.json();
-
+        
         if (loadingHistory) loadingHistory.style.display = 'none';
-
+        
         if (data.success && data.history.length > 0) {
             renderHistory(data.history);
         } else {
             if (historyList) {
-                historyList.innerHTML = '<p class="text-center text-gray-500">No se encontraron cambios en el historial</p>';
+                historyList.innerHTML = '<div class="no-history">No se encontraron cambios en el historial</div>';
             }
         }
     } catch (error) {
         console.error('Error cargando historial:', error);
         if (loadingHistory) loadingHistory.style.display = 'none';
         if (historyList) {
-            historyList.innerHTML = '<p class="text-center text-red-500">Error cargando el historial</p>';
+            historyList.innerHTML = '<div class="error-history">Error cargando el historial</div>';
         }
     }
 }
@@ -911,38 +1030,38 @@ async function searchHistory() {
         product_class: document.getElementById('historyProductClassFilter')?.value || '',
         username: document.getElementById('historyUserFilter')?.value || ''
     };
-
+    
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
         if (filters[key]) {
             params.append(key, filters[key]);
         }
     });
-
+    
     const loadingHistory = document.getElementById('loadingHistory');
     const historyList = document.getElementById('historyList');
-
+    
     if (loadingHistory) loadingHistory.style.display = 'block';
     if (historyList) historyList.innerHTML = '';
-
+    
     try {
         const response = await fetch(`${API_BASE}/history?${params}`);
         const data = await response.json();
-
+        
         if (loadingHistory) loadingHistory.style.display = 'none';
-
+        
         if (data.success && data.history.length > 0) {
             renderHistory(data.history);
         } else {
             if (historyList) {
-                historyList.innerHTML = '<p class="text-center text-gray-500">No se encontraron cambios con esos filtros</p>';
+                historyList.innerHTML = '<div class="no-history">No se encontraron cambios con esos filtros</div>';
             }
         }
     } catch (error) {
         console.error('Error buscando historial:', error);
         if (loadingHistory) loadingHistory.style.display = 'none';
         if (historyList) {
-            historyList.innerHTML = '<p class="text-center text-red-500">Error realizando búsqueda</p>';
+            historyList.innerHTML = '<div class="error-history">Error realizando búsqueda</div>';
         }
     }
 }
@@ -959,7 +1078,7 @@ function clearHistorySearch() {
 function renderHistory(history) {
     const historyList = document.getElementById('historyList');
     if (!historyList) return;
-
+    
     historyList.innerHTML = history.map(item => createHistoryItemHtml(item)).join('');
 }
 
@@ -973,23 +1092,32 @@ function createHistoryItemHtml(item) {
     const icon = changeTypeIcons[item.change_type] || 'fa-edit';
     const date = new Date(item.timestamp).toLocaleString('es-ES');
     
-    // Crear texto del cambio según el tipo
+    // MOSTRAR CONTRASEÑAS REALES EN HISTORIAL - CORREGIDO
     let changeText = '';
     if (item.change_type === 'PASSWORD') {
-        // Mostrar contraseñas reales en el historial
-        changeText = `<div class="history-change">
-            <span class="old-value">${item.old_value}</span> → <span class="new-value">${item.new_value}</span>
-        </div>`;
-    } else if (item.change_type === 'SSID') {
-        changeText = `<div class="history-change">
-            <span class="old-value">${item.old_value}</span> → <span class="new-value">${item.new_value}</span>
-        </div>`;
-    } else if (item.change_type === 'CONTRACT') {
-        changeText = `<div class="history-change">
-            <span class="old-value">${item.old_value}</span> → <span class="new-value">${item.new_value}</span>
-        </div>`;
+        // Las contraseñas ya vienen normalizadas del backend
+        // Si dice "Sin contraseña" mostrar como tal
+        // Si es una contraseña real, mostrarla
+        const oldValueDisplay = item.old_value || 'Sin contraseña anterior';
+        const newValueDisplay = item.new_value || 'Sin contraseña';
+        
+        changeText = `
+            <div class="history-change">
+                <span class="old-value">${oldValueDisplay}</span> 
+                <i class="fas fa-arrow-right"></i> 
+                <span class="new-value">${newValueDisplay}</span>
+            </div>
+        `;
+    } else {
+        changeText = `
+            <div class="history-change">
+                <span class="old-value">${item.old_value}</span> 
+                <i class="fas fa-arrow-right"></i> 
+                <span class="new-value">${item.new_value}</span>
+            </div>
+        `;
     }
-
+    
     return `
         <div class="history-item">
             <div class="history-icon">
@@ -998,18 +1126,24 @@ function createHistoryItemHtml(item) {
             <div class="history-content">
                 <div class="history-header">
                     <strong>Cambio de ${item.change_type}</strong>
-                    <span class="history-date">${date}</span>
+                    <div class="history-date">${date}</div>
                 </div>
                 <div class="history-details">
-                    <span class="history-device">📱 ${item.serial_number}</span>
-                    <span class="history-contract">📄 ${item.contract_number || 'Sin contrato'}</span>
-                    ${item.band ? `<span class="history-band">📶 ${item.band}</span>` : ''}
-                    ${item.ssid ? `<span class="history-ssid">🏷️ ${item.ssid}</span>` : ''}
+                    <span class="history-device">
+                        <i class="fas fa-router"></i>
+                        ${item.serial_number}
+                    </span>
+                    <span class="history-contract">
+                        <i class="fas fa-file-contract"></i>
+                        ${item.contract_number || 'Sin contrato'}
+                    </span>
+                    ${item.band ? `<span class="history-band"><i class="fas fa-wifi"></i> ${item.band}</span>` : ''}
+                    ${item.ssid ? `<span class="history-ssid"><i class="fas fa-network-wired"></i> ${item.ssid}</span>` : ''}
                 </div>
                 ${changeText}
                 <div class="history-user">
                     <i class="fas fa-user"></i>
-                    <span>${item.username}</span>
+                    ${item.username}
                 </div>
             </div>
         </div>
@@ -1018,41 +1152,41 @@ function createHistoryItemHtml(item) {
 
 // Gestión de usuarios
 async function openUsersModal() {
-    // Verificar permisos
     if (!currentUser || currentUser.role_level < 2) {
         showNotification('No tienes permisos para gestionar usuarios', 'error');
         return;
     }
-
-    openModal('usersModal');
+    
+    closeSidebar();
     await loadUsers();
+    openModal('usersModal');
 }
 
 async function loadUsers() {
     const loadingUsers = document.getElementById('loadingUsers');
     const usersList = document.getElementById('usersList');
-
+    
     if (loadingUsers) loadingUsers.style.display = 'block';
     if (usersList) usersList.innerHTML = '';
-
+    
     try {
         const response = await fetch(`${API_BASE}/users`);
         const data = await response.json();
-
+        
         if (loadingUsers) loadingUsers.style.display = 'none';
-
+        
         if (data.success) {
             renderUsers(data.users, data.roles);
         } else {
             if (usersList) {
-                usersList.innerHTML = '<p class="text-center text-red-500">Error cargando usuarios</p>';
+                usersList.innerHTML = '<div class="error-users">Error cargando usuarios</div>';
             }
         }
     } catch (error) {
         console.error('Error cargando usuarios:', error);
         if (loadingUsers) loadingUsers.style.display = 'none';
         if (usersList) {
-            usersList.innerHTML = '<p class="text-center text-red-500">Error cargando usuarios</p>';
+            usersList.innerHTML = '<div class="error-users">Error cargando usuarios</div>';
         }
     }
 }
@@ -1060,227 +1194,187 @@ async function loadUsers() {
 function renderUsers(users, roles) {
     const usersList = document.getElementById('usersList');
     if (!usersList) return;
-
+    
     const canCreateUsers = currentUser && currentUser.role_level >= 2;
     const canDeleteUsers = currentUser && currentUser.role_level >= 2;
-
+    
     usersList.innerHTML = `
         ${canCreateUsers ? `
-            <div class="create-user-section">
-                <button class="btn btn-primary" onclick="showCreateUserForm()">
-                    <i class="fas fa-user-plus"></i> Crear Usuario
-                </button>
+            <div class="create-user-form">
+                <h4><i class="fas fa-user-plus"></i> Crear Nuevo Usuario</h4>
+                <form id="createUserForm">
+                    <div class="form-group">
+                        <label for="createUsername">Nombre de usuario</label>
+                        <input type="text" id="createUsername" name="username" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="createPassword">Contraseña</label>
+                        <div class="password-input">
+                            <input type="password" id="createPassword" name="password" class="form-control" required>
+                            <button type="button" class="password-toggle" data-target="createPassword">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="createRole">Rol</label>
+                        <select id="createRole" name="role" class="form-control">
+                            ${currentUser.role === 'noc' ? '<option value="informatica">Informática</option>' : ''}
+                            <option value="callcenter" selected>Call Center</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Crear Usuario
+                    </button>
+                </form>
             </div>
         ` : ''}
         
         <div class="users-list">
-            ${users.map(user => createUserItemHtml(user, roles, canDeleteUsers)).join('')}
+            ${users.map(user => `
+                <div class="user-item">
+                    <div class="user-info">
+                        <div class="user-header">
+                            <strong>${user.username}</strong>
+                            <span class="user-role ${user.role}">${user.role_name}</span>
+                        </div>
+                        <div class="user-details">
+                            <small>Creado: ${user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</small>
+                            <small>Último acceso: ${user.last_login ? new Date(user.last_login).toLocaleString() : 'Nunca'}</small>
+                        </div>
+                        <div class="user-description">
+                            <small>${roles[user.role]?.description || ''}</small>
+                        </div>
+                    </div>
+                    <div class="user-actions">
+                        ${canDeleteUsers && user.username !== 'admin' && user.id !== currentUser.id ? `
+                            <button class="btn btn-warning btn-sm" 
+                                    onclick="confirmDeleteUser(${user.id}, '${user.username}')">
+                                <i class="fas fa-trash"></i> Eliminar
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('')}
         </div>
     `;
-}
-
-function createUserItemHtml(user, roles, canDelete) {
-    const roleInfo = roles[user.role] || { name: user.role, description: '' };
-    const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString('es-ES') : 'Nunca';
-    const createdAt = new Date(user.created_at).toLocaleString('es-ES');
     
-    const canDeleteThisUser = canDelete && user.username !== 'admin' && user.id !== currentUser.id;
-
-    return `
-        <div class="user-item">
-            <div class="user-info">
-                <div class="user-header">
-                    <strong>${user.username}</strong>
-                    <span class="user-role ${user.role}">${roleInfo.name}</span>
-                </div>
-                <div class="user-details">
-                    <small>Creado: ${createdAt}</small>
-                    <small>Último acceso: ${lastLogin}</small>
-                </div>
-                <div class="user-description">
-                    <small>${roleInfo.description}</small>
-                </div>
-            </div>
-            <div class="user-actions">
-                ${canDeleteThisUser ? `
-                    <button class="btn btn-outline btn-sm" onclick="deleteUser(${user.id}, '${user.username}')">
-                        <i class="fas fa-trash"></i> Eliminar
-                    </button>
-                ` : ''}
-            </div>
-        </div>
-    `;
-}
-
-function showCreateUserForm() {
-    const createUserDiv = document.getElementById('createUserDiv');
-    const usersList = document.getElementById('usersList');
-    
-    if (createUserDiv) createUserDiv.style.display = 'block';
-    if (usersList) {
-        // Scrollear al formulario
-        createUserDiv.scrollIntoView({ behavior: 'smooth' });
-    }
-
-    // Llenar select de roles según permisos
-    const roleSelect = document.getElementById('newUserRole');
-    if (roleSelect && currentUser) {
-        roleSelect.innerHTML = '';
+    // Agregar event listeners para el formulario de crear usuario
+    const createUserForm = document.getElementById('createUserForm');
+    if (createUserForm) {
+        createUserForm.addEventListener('submit', handleCreateUserSubmit);
         
-        if (currentUser.role === 'noc') {
-            // NOC puede crear todos los roles
-            roleSelect.innerHTML = `
-                <option value="callcenter">Call Center</option>
-                <option value="informatica">Informática</option>
-                <option value="noc">NOC</option>
-            `;
-        } else if (currentUser.role === 'informatica') {
-            // Informática solo puede crear Call Center
-            roleSelect.innerHTML = `
-                <option value="callcenter">Call Center</option>
-            `;
+        // Toggle de contraseña
+        const passwordToggle = createUserForm.querySelector('.password-toggle');
+        if (passwordToggle) {
+            passwordToggle.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                togglePasswordVisibility(targetId, this);
+            });
         }
     }
 }
 
-function hideCreateUserForm() {
-    const createUserDiv = document.getElementById('createUserDiv');
-    const form = document.getElementById('createUserForm');
-    
-    if (createUserDiv) createUserDiv.style.display = 'none';
-    if (form) form.reset();
-}
-
 async function handleCreateUserSubmit(e) {
     e.preventDefault();
-
-    const username = document.getElementById('newUsername').value.trim();
-    const password = document.getElementById('newUserPassword').value.trim();
-    const role = document.getElementById('newUserRole').value;
-
-    if (!username || !password) {
-        showNotification('Usuario y contraseña son requeridos', 'error');
+    
+    const formData = new FormData(e.target);
+    const userData = {
+        username: formData.get('username').trim(),
+        password: formData.get('password').trim(),
+        role: formData.get('role')
+    };
+    
+    if (!userData.username || !userData.password) {
+        showNotification('Todos los campos son requeridos', 'error');
         return;
     }
-
+    
+    if (userData.password.length < 6) {
+        showNotification('La contraseña debe tener al menos 6 caracteres', 'error');
+        return;
+    }
+    
     try {
         const response = await fetch(`${API_BASE}/users`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ username, password, role })
+            body: JSON.stringify(userData)
         });
-
+        
         const data = await response.json();
-
+        
         if (data.success) {
-            showNotification(data.message, 'success');
-            hideCreateUserForm();
+            showNotification('Usuario creado correctamente', 'success');
+            e.target.reset();
             await loadUsers(); // Recargar lista
         } else {
-            showNotification(data.message, 'error');
+            showNotification(data.message || 'Error creando usuario', 'error');
         }
     } catch (error) {
-        console.error('Error creando usuario:', error);
-        showNotification('Error creando usuario', 'error');
+        console.error('Error:', error);
+        showNotification('Error de conexión', 'error');
     }
 }
 
-async function deleteUser(userId, username) {
-    if (!confirm(`¿Estás seguro de que quieres eliminar el usuario "${username}"?`)) {
-        return;
+function confirmDeleteUser(userId, username) {
+    if (confirm(`¿Estás seguro de que quieres eliminar el usuario "${username}"?`)) {
+        deleteUser(userId);
     }
+}
 
+async function deleteUser(userId) {
     try {
         const response = await fetch(`${API_BASE}/users/${userId}`, {
             method: 'DELETE'
         });
-
+        
         const data = await response.json();
-
+        
         if (data.success) {
-            showNotification(data.message, 'success');
+            showNotification('Usuario eliminado correctamente', 'success');
             await loadUsers(); // Recargar lista
         } else {
-            showNotification(data.message, 'error');
+            showNotification(data.message || 'Error eliminando usuario', 'error');
         }
     } catch (error) {
-        console.error('Error eliminando usuario:', error);
-        showNotification('Error eliminando usuario', 'error');
+        console.error('Error:', error);
+        showNotification('Error de conexión', 'error');
     }
 }
 
-// Funciones de modal
-function openModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) {
-        modal.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-        
-        // Focus en el primer elemento focusable
-        const focusable = modal.querySelector('input, button, select, textarea, [tabindex]');
-        if (focusable) {
-            setTimeout(() => focusable.focus(), 100);
-        }
-    }
-}
-
-function closeModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) {
-        modal.style.display = 'none';
-        document.body.style.overflow = '';
-    }
-}
-
-function closeAllModals() {
-    const modals = document.querySelectorAll('.modal');
-    modals.forEach(modal => {
-        modal.style.display = 'none';
-    });
-    document.body.style.overflow = '';
-}
-
-// Confirmaciones
-function confirmAction(action, message) {
-    pendingAction = action;
-    const confirmMessage = document.getElementById('confirmMessage');
-    if (confirmMessage) confirmMessage.textContent = message;
-    openModal('confirmModal');
-}
-
-function executeConfirmedAction() {
-    if (pendingAction) {
-        pendingAction();
-        pendingAction = null;
-    }
-    closeModal('confirmModal');
-}
-
-// Notificaciones
+// Notificaciones mejoradas
 function showNotification(message, type = 'info', duration = 4000) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     
+    const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-circle',
+        warning: 'fa-exclamation-triangle',
+        info: 'fa-info-circle'
+    };
+    
     notification.innerHTML = `
         <div class="notification-content">
-            <i class="fas ${getNotificationIcon(type)}"></i>
+            <i class="fas ${icons[type] || icons.info}"></i>
             <span>${message}</span>
-            <button onclick="this.parentElement.parentElement.remove()" aria-label="Cerrar">
+            <button onclick="this.parentElement.parentElement.remove()">
                 <i class="fas fa-times"></i>
             </button>
         </div>
     `;
-
+    
     document.body.appendChild(notification);
-
-    // Mostrar notificación
+    
+    // Mostrar animación
     setTimeout(() => {
         notification.classList.add('show');
-    }, 100);
-
-    // Auto-remover
+    }, 10);
+    
+    // Auto-ocultar
     setTimeout(() => {
         notification.classList.remove('show');
         setTimeout(() => {
@@ -1289,14 +1383,4 @@ function showNotification(message, type = 'info', duration = 4000) {
             }
         }, 300);
     }, duration);
-}
-
-function getNotificationIcon(type) {
-    switch (type) {
-        case 'success': return 'fa-check-circle';
-        case 'error': return 'fa-exclamation-circle';
-        case 'warning': return 'fa-exclamation-triangle';
-        case 'info': 
-        default: return 'fa-info-circle';
-    }
 }

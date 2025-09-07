@@ -1,5 +1,12 @@
-
+# Dependencias para GenieACS WiFi Manager con MySQL
 Flask==2.3.3
 Flask-CORS==4.0.0
+Flask-SQLAlchemy==3.0.5
+PyMySQL==1.1.0
+cryptography==41.0.7
 requests==2.31.0
-urllib3==2.0.7
+python-dotenv==1.0.0
+
+# Dependencias adicionales para desarrollo (opcional)
+# Flask-Migrate==4.0.5  # Para migraciones avanzadas
+# marshmallow==3.20.1   # Para serialización
