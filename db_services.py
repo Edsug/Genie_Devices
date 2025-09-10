@@ -1,12 +1,13 @@
-from models import db, User, DeviceContract, WifiPassword, ChangeHistory, DeviceCache
-from datetime import datetime
+from models import db, User, DeviceContract, WifiPassword, ChangeHistory, DeviceInfo, CSVImportHistory, DeviceCache
+from datetime import datetime, timedelta
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import and_, or_, func
 import logging
 
 logger = logging.getLogger(__name__)
 
 class DatabaseService:
-    """Servicio para operaciones de base de datos"""
+    """Servicio actualizado para operaciones de base de datos con soporte CSV"""
 
     @staticmethod
     def create_default_users():
@@ -78,6 +79,7 @@ class DatabaseService:
             db.session.commit()
             logger.info(f"✅ Usuario {username} creado con rol {role}")
             return True, "Usuario creado exitosamente"
+
         except SQLAlchemyError as e:
             db.session.rollback()
             logger.error(f"❌ Error creando usuario: {e}")
@@ -90,6 +92,7 @@ class DatabaseService:
             user = User.query.get(user_id)
             if user:
                 user.theme = theme
+                user.updated_at = datetime.utcnow()
                 db.session.commit()
                 return True, "Tema actualizado"
             return False, "Usuario no encontrado"
@@ -113,6 +116,7 @@ class DatabaseService:
         """Almacenar contrato de dispositivo"""
         try:
             contract = DeviceContract.query.filter_by(serial_number=serial_number).first()
+
             if contract:
                 contract.contract_number = contract_number
                 contract.updated_by = user_id
@@ -128,6 +132,7 @@ class DatabaseService:
             db.session.commit()
             logger.info(f"✅ Contrato actualizado: {serial_number} -> {contract_number}")
             return True, "Contrato actualizado"
+
         except SQLAlchemyError as e:
             db.session.rollback()
             logger.error(f"❌ Error almacenando contrato: {e}")
@@ -135,29 +140,30 @@ class DatabaseService:
 
     @staticmethod
     def store_password(serial_number, band, ssid, password):
-        """Almacenar contraseña WiFi"""
+        """Almacenar contraseña WiFi cifrada"""
         try:
             wifi_pass = WifiPassword.query.filter_by(
-                serial_number=serial_number, 
+                serial_number=serial_number,
                 band=band
             ).first()
 
             if wifi_pass:
                 wifi_pass.ssid = ssid
-                wifi_pass.password = password
+                wifi_pass.password = password  # Se cifra automáticamente
                 wifi_pass.updated_at = datetime.utcnow()
             else:
                 wifi_pass = WifiPassword(
                     serial_number=serial_number,
                     band=band,
-                    ssid=ssid,
-                    password=password
+                    ssid=ssid
                 )
+                wifi_pass.password = password  # Se cifra automáticamente
                 db.session.add(wifi_pass)
 
             db.session.commit()
             logger.info(f"✅ Contraseña WiFi actualizada: {serial_number}:{band}")
             return True, "Contraseña almacenada"
+
         except SQLAlchemyError as e:
             db.session.rollback()
             logger.error(f"❌ Error almacenando contraseña: {e}")
@@ -165,20 +171,20 @@ class DatabaseService:
 
     @staticmethod
     def get_stored_password(serial_number, band):
-        """Obtener contraseña WiFi almacenada"""
+        """Obtener contraseña WiFi almacenada y descifrada"""
         try:
             wifi_pass = WifiPassword.query.filter_by(
-                serial_number=serial_number, 
+                serial_number=serial_number,
                 band=band
             ).first()
-            return wifi_pass.password if wifi_pass else ""
+            return wifi_pass.password if wifi_pass else ""  # Se descifra automáticamente
         except SQLAlchemyError as e:
             logger.error(f"❌ Error obteniendo contraseña: {e}")
             return ""
 
     @staticmethod
-    def store_change_history(serial_number, product_class, band, change_type, 
-                           old_value, new_value, ssid=None, contract_number=None, 
+    def store_change_history(serial_number, product_class, band, change_type,
+                           old_value, new_value, ssid=None, contract_number=None,
                            user_id=None, username=None):
         """Almacenar historial de cambios"""
         try:
@@ -204,13 +210,14 @@ class DatabaseService:
             db.session.commit()
             logger.info(f"✅ Historial guardado: {serial_number}:{change_type}")
             return True, "Historial guardado"
+
         except SQLAlchemyError as e:
             db.session.rollback()
             logger.error(f"❌ Error guardando historial: {e}")
             return False, str(e)
 
     @staticmethod
-    def get_change_history(limit=100, serial_filter=None, contract_filter=None, 
+    def get_change_history(limit=100, serial_filter=None, contract_filter=None,
                           user_filter=None, ssid_filter=None):
         """Obtener historial de cambios con filtros"""
         try:
@@ -227,6 +234,7 @@ class DatabaseService:
 
             history = query.order_by(ChangeHistory.timestamp.desc()).limit(limit).all()
             return [h.to_dict() for h in history]
+
         except SQLAlchemyError as e:
             logger.error(f"❌ Error obteniendo historial: {e}")
             return []
@@ -249,6 +257,7 @@ class DatabaseService:
             has_contract = contract and contract.contract_number and contract.contract_number.strip()
 
             return has_passwords and has_contract
+
         except SQLAlchemyError as e:
             logger.error(f"❌ Error verificando configuración: {e}")
             return False
@@ -264,6 +273,7 @@ class DatabaseService:
                 users = User.query.filter_by(role='callcenter', is_active=True).order_by(User.username).all()
 
             return [user.to_dict() for user in users]
+
         except SQLAlchemyError as e:
             logger.error(f"❌ Error obteniendo usuarios: {e}")
             return []
@@ -285,10 +295,228 @@ class DatabaseService:
 
             # Soft delete
             user.is_active = False
+            user.updated_at = datetime.utcnow()
             db.session.commit()
             logger.info(f"✅ Usuario deshabilitado: {user.username}")
             return True, f"Usuario {user.username} eliminado"
+
         except SQLAlchemyError as e:
             db.session.rollback()
             logger.error(f"❌ Error eliminando usuario: {e}")
             return False, str(e)
+
+    # NUEVAS FUNCIONES PARA SOPORTE CSV
+
+    @staticmethod
+    def store_device_info(device_serial, mac_address=None, ip_address=None, 
+                         ns=None, model=None):
+        """Almacenar información adicional del dispositivo"""
+        try:
+            device_info = DeviceInfo.query.filter_by(device_serial=device_serial).first()
+
+            if device_info:
+                # Actualizar información existente
+                if mac_address:
+                    device_info.mac_address = mac_address
+                if ip_address:
+                    device_info.ip_address = ip_address
+                if ns:
+                    device_info.ns = ns
+                if model:
+                    device_info.model = model
+                device_info.updated_at = datetime.utcnow()
+            else:
+                # Crear nueva información
+                device_info = DeviceInfo(
+                    device_serial=device_serial,
+                    mac_address=mac_address,
+                    ip_address=ip_address,
+                    ns=ns,
+                    model=model
+                )
+                db.session.add(device_info)
+
+            db.session.commit()
+            logger.info(f"✅ Información de dispositivo actualizada: {device_serial}")
+            return True, "Información almacenada"
+
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"❌ Error almacenando información del dispositivo: {e}")
+            return False, str(e)
+
+    @staticmethod
+    def get_device_full_info(device_serial):
+        """Obtener información completa de un dispositivo"""
+        try:
+            # Información básica
+            contract = DeviceContract.query.filter_by(serial_number=device_serial).first()
+            device_info = DeviceInfo.query.filter_by(device_serial=device_serial).first()
+            
+            # Contraseñas WiFi
+            wifi_passwords = WifiPassword.query.filter_by(serial_number=device_serial).all()
+            
+            result = {
+                'serial_number': device_serial,
+                'contract_number': contract.contract_number if contract else None,
+                'customer_name': contract.get_customer_name() if contract else None,
+                'mac_address': device_info.mac_address if device_info else None,
+                'ip_address': device_info.ip_address if device_info else None,
+                'ns': device_info.ns if device_info else None,
+                'model': device_info.model if device_info else None,
+                'wifi_passwords': {pwd.band: pwd.password for pwd in wifi_passwords},
+                'last_updated': max(
+                    contract.updated_at if contract else datetime.min,
+                    device_info.updated_at if device_info else datetime.min
+                ).isoformat() if (contract or device_info) else None
+            }
+            
+            return result
+
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo información completa: {e}")
+            return {}
+
+    @staticmethod
+    def get_csv_import_history(limit=50):
+        """Obtener historial de importaciones CSV"""
+        try:
+            imports = CSVImportHistory.query.order_by(
+                CSVImportHistory.created_at.desc()
+            ).limit(limit).all()
+            
+            return [import_record.to_dict() for import_record in imports]
+
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo historial CSV: {e}")
+            return []
+
+    @staticmethod
+    def get_devices_with_missing_data():
+        """Obtener estadísticas de dispositivos con datos faltantes"""
+        try:
+            # Dispositivos sin contrato
+            devices_without_contract = db.session.query(func.count(ChangeHistory.serial_number.distinct())).filter(
+                and_(
+                    ChangeHistory.change_type != 'CONTRACT',
+                    ~ChangeHistory.serial_number.in_(
+                        db.session.query(DeviceContract.serial_number)
+                    )
+                )
+            ).scalar() or 0
+
+            # Dispositivos sin contraseñas WiFi
+            devices_without_wifi = db.session.query(func.count(ChangeHistory.serial_number.distinct())).filter(
+                and_(
+                    ChangeHistory.change_type != 'PASSWORD',
+                    ~ChangeHistory.serial_number.in_(
+                        db.session.query(WifiPassword.serial_number)
+                    )
+                )
+            ).scalar() or 0
+
+            # Dispositivos sin información adicional
+            devices_without_info = db.session.query(func.count(ChangeHistory.serial_number.distinct())).filter(
+                ~ChangeHistory.serial_number.in_(
+                    db.session.query(DeviceInfo.device_serial)
+                )
+            ).scalar() or 0
+
+            # Total de dispositivos únicos en historial
+            total_devices = db.session.query(func.count(ChangeHistory.serial_number.distinct())).scalar() or 0
+
+            return {
+                'total_devices': total_devices,
+                'devices_without_contract': devices_without_contract,
+                'devices_without_wifi': devices_without_wifi,
+                'devices_without_info': devices_without_info,
+                'completion_percentage': round(
+                    ((total_devices - max(devices_without_contract, devices_without_wifi)) / total_devices * 100) 
+                    if total_devices > 0 else 0, 2
+                )
+            }
+
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo estadísticas: {e}")
+            return {
+                'total_devices': 0,
+                'devices_without_contract': 0,
+                'devices_without_wifi': 0,
+                'devices_without_info': 0,
+                'completion_percentage': 0
+            }
+
+    @staticmethod
+    def find_device_by_mac(mac_address):
+        """Buscar dispositivo por MAC address"""
+        try:
+            device_info = DeviceInfo.query.filter_by(mac_address=mac_address.upper()).first()
+            return device_info.device_serial if device_info else None
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error buscando dispositivo por MAC: {e}")
+            return None
+
+    @staticmethod
+    def store_contract_with_customer_info(serial_number, contract_number, customer_name, user_id=None):
+        """Almacenar contrato con información de cliente"""
+        try:
+            contract = DeviceContract.query.filter_by(serial_number=serial_number).first()
+
+            if contract:
+                contract.contract_number = contract_number
+                contract.set_customer_name(customer_name)  # Cifrado automático
+                contract.updated_by = user_id
+                contract.updated_at = datetime.utcnow()
+            else:
+                contract = DeviceContract(
+                    serial_number=serial_number,
+                    contract_number=contract_number,
+                    updated_by=user_id
+                )
+                contract.set_customer_name(customer_name)  # Cifrado automático
+                db.session.add(contract)
+
+            db.session.commit()
+            logger.info(f"✅ Contrato con cliente actualizado: {serial_number} -> {contract_number}")
+            return True, "Contrato y cliente actualizados"
+
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"❌ Error almacenando contrato con cliente: {e}")
+            return False, str(e)
+
+    @staticmethod
+    def get_import_statistics_summary():
+        """Obtener resumen de estadísticas de importación"""
+        try:
+            # Últimas 24 horas
+            since_24h = datetime.utcnow() - timedelta(hours=24)
+            
+            recent_imports = CSVImportHistory.query.filter(
+                CSVImportHistory.created_at >= since_24h
+            ).all()
+            
+            stats = {
+                'last_24h': {
+                    'total_imports': len(recent_imports),
+                    'successful_imports': len([i for i in recent_imports if i.status == 'completed']),
+                    'failed_imports': len([i for i in recent_imports if i.status == 'failed']),
+                    'records_processed': sum(i.records_processed or 0 for i in recent_imports)
+                },
+                'by_type': {}
+            }
+            
+            # Por tipo de archivo
+            for file_type in ['info1060', 'matched_items']:
+                type_imports = [i for i in recent_imports if i.file_type == file_type]
+                stats['by_type'][file_type] = {
+                    'imports': len(type_imports),
+                    'records_processed': sum(i.records_processed or 0 for i in type_imports),
+                    'last_import': max([i.created_at for i in type_imports]).isoformat() if type_imports else None
+                }
+            
+            return stats
+
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo estadísticas de importación: {e}")
+            return {}

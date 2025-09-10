@@ -9,11 +9,13 @@ import logging
 import hashlib
 from functools import wraps
 import re
+from werkzeug.utils import secure_filename
 
-# Importar configuraciones y modelos MySQL
+# Importar configuraciones y modelos MySQL actualizados
 from config_db import SQLALCHEMY_DATABASE_URI, SQLALCHEMY_TRACK_MODIFICATIONS, SQLALCHEMY_ENGINE_OPTIONS
-from models import db, User, DeviceContract, WifiPassword, ChangeHistory
+from models import db, User, DeviceContract, WifiPassword, ChangeHistory, DeviceInfo, CSVImportHistory
 from db_services import DatabaseService
+from csv_processor import CSVProcessor
 
 # Configuración de la aplicación
 app = Flask(__name__)
@@ -24,6 +26,15 @@ app.secret_key = 'tu_clave_secreta_super_segura_aqui_cambiala'  # ⚠️ CAMBIAR
 app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = SQLALCHEMY_TRACK_MODIFICATIONS
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = SQLALCHEMY_ENGINE_OPTIONS
+
+# Configuración para upload de archivos
+app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB máximo
+ALLOWED_EXTENSIONS = {'csv'}
+
+# Crear carpetas necesarias si no existen
+for folder in ['uploads', 'data', 'logs', 'backups']:
+    os.makedirs(folder, exist_ok=True)
 
 # Inicializar extensiones
 db.init_app(app)
@@ -174,14 +185,26 @@ DEVICE_KNOWLEDGE_BASE = {
     }
 }
 
+def allowed_file(filename):
+    """Verificar si el archivo tiene extensión permitida"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def detect_csv_file_type(filename):
+    """Detectar tipo de archivo CSV por nombre"""
+    filename_lower = filename.lower()
+    if 'info1060' in filename_lower:
+        return 'info1060'
+    elif 'matched_items' in filename_lower or 'matched' in filename_lower:
+        return 'matched_items'
+    return None
 
 def is_valid_ssid(ssid):
     """Verificar si el SSID es válido y visible"""
     if not ssid or not ssid.strip():
         return False
-
+    
     ssid = ssid.strip()
-
+    
     # Filtrar SSIDs ocultos o con caracteres extraños
     invalid_patterns = [
         r'^[\*\.\-_]+$',  # Solo asteriscos, puntos, guiones
@@ -189,27 +212,26 @@ def is_valid_ssid(ssid):
         r'^[0-9A-Fa-f]{32}$',  # Hash hexadecimal de 32 caracteres
         r'^[0-9A-Fa-f]{64}$',  # Hash hexadecimal de 64 caracteres
     ]
-
+    
     for pattern in invalid_patterns:
         if re.match(pattern, ssid):
             return False
-
+    
     # Debe tener al menos un carácter alfanumérico
     if not re.search(r'[a-zA-Z0-9]', ssid):
         return False
-
+    
     return True
-
 
 def is_valid_password(password):
     """Verificar si la contraseña es válida y legible"""
     if not password:
         return False
-
+    
     password = password.strip()
     if not password:
         return False
-
+    
     # Filtrar contraseñas inválidas
     invalid_patterns = [
         r'^[\*\.\-_\s]+$',  # Solo asteriscos, puntos, guiones, espacios
@@ -218,24 +240,22 @@ def is_valid_password(password):
         r'^\$[0-9]\$.*',  # Hash con formato $n$...
         r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$',  # UUID
     ]
-
+    
     for pattern in invalid_patterns:
         if re.match(pattern, password):
             return False
-
+    
     # Debe tener entre 8 y 63 caracteres para WiFi
     if len(password) < 8 or len(password) > 63:
         return False
-
+    
     return True
-
 
 def normalize_password_for_history(password):
     """Normalizar contraseña para mostrar en historial"""
     if not password or not is_valid_password(password):
         return "Sin contraseña"
     return password
-
 
 def login_required(f):
     """Decorador para requerir autenticación"""
@@ -248,7 +268,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-
 def role_required(min_level):
     """Decorador para requerir nivel mínimo de rol"""
     def decorator(f):
@@ -258,19 +277,18 @@ def role_required(min_level):
                 if request.is_json:
                     return jsonify({'success': False, 'message': 'Autenticación requerida'}), 401
                 return redirect(url_for('login'))
-
+            
             user_role = session.get('role', 'callcenter')
             user_level = USER_ROLES.get(user_role, {'level': 0})['level']
-
+            
             if user_level < min_level:
                 if request.is_json:
                     return jsonify({'success': False, 'message': 'Permisos insuficientes'}), 403
                 return redirect(url_for('index'))
-
+            
             return f(*args, **kwargs)
         return decorated_function
     return decorator
-
 
 def get_current_user():
     """Obtener usuario actual de la sesión"""
@@ -287,8 +305,8 @@ def get_current_user():
             }
     return None
 
+# [TODAS LAS FUNCIONES DE GENIEACS SE MANTIENEN IGUAL - COPIADAS DE TU ARCHIVO ORIGINAL]
 
-# Funciones para GenieACS (mantienen la misma lógica)
 def get_devices_from_genieacs():
     """Obtener dispositivos directamente desde GenieACS API"""
     try:
@@ -300,7 +318,6 @@ def get_devices_from_genieacs():
         logger.error(f"Error conectando a GenieACS: {e}")
         return []
 
-
 def safe_get_value(data, path):
     """Obtener valor de forma segura desde estructura anidada"""
     try:
@@ -310,35 +327,34 @@ def safe_get_value(data, path):
                 current = current[key]
             else:
                 return ""
-
+        
         if isinstance(current, dict) and '_value' in current:
             return str(current['_value'])
         elif isinstance(current, dict):
             return ""
-
+        
         return str(current) if current is not None else ""
     except:
         return ""
-
 
 def extract_device_info(device):
     """Extraer información básica del dispositivo"""
     serial_number = unquote(device.get("_id", ""))
     igw = device.get('InternetGatewayDevice', {})
     device_info = igw.get('DeviceInfo', {})
-
+    
     # Product Class
     product_class = ""
     if '_deviceId' in device and isinstance(device['_deviceId'], dict):
         product_class = device['_deviceId'].get('_ProductClass', '')
-
+    
     if not product_class:
         product_class = safe_get_value(device_info, ['ProductClass'])
-
+    
     # Otros datos
     software_version = safe_get_value(device_info, ['SoftwareVersion'])
     hardware_version = safe_get_value(device_info, ['HardwareVersion'])
-
+    
     # Last inform
     last_inform = ""
     if '_lastInform' in device:
@@ -349,7 +365,7 @@ def extract_device_info(device):
                 last_inform = dt.strftime("%d/%m/%Y, %I:%M:%S %p")
         except:
             pass
-
+    
     # Tags
     tags = []
     if '_tags' in device:
@@ -358,7 +374,7 @@ def extract_device_info(device):
             tags = list(tags_data.keys())
         elif isinstance(tags_data, list):
             tags = tags_data
-
+    
     return {
         "serial_number": serial_number,
         "product_class": product_class,
@@ -369,31 +385,31 @@ def extract_device_info(device):
         "raw_device": device
     }
 
-
 def extract_wifi_networks(device_info):
     """Extraer redes WiFi usando base de conocimiento con filtros mejorados"""
     device = device_info["raw_device"]
     igw = device.get('InternetGatewayDevice', {})
     product_class = device_info["product_class"]
     serial_number = device_info["serial_number"]
-
+    
     if product_class not in DEVICE_KNOWLEDGE_BASE:
         return [], "", ""
-
+    
     # Extraer IP y MAC
     ip, mac = extract_ip_mac_for_product_class(igw, product_class)
-
+    
     if not ip or ip == "0.0.0.0":
         return [], ip, mac
-
+    
     # Buscar WLANConfigurations
     wlan_configs = igw.get('LANDevice', {}).get('1', {}).get('WLANConfiguration', {})
+    
     if not wlan_configs:
         return [], ip, mac
-
+    
     # Extraer redes con filtros mejorados
     networks = extract_networks_by_knowledge(wlan_configs, product_class, serial_number)
-
+    
     # Filtrar redes con SSIDs válidos
     valid_networks = []
     for network in networks:
@@ -402,47 +418,45 @@ def extract_wifi_networks(device_info):
             if not is_valid_password(network['password']):
                 network['password'] = ""  # Limpiar contraseña inválida
             valid_networks.append(network)
-
+    
     # Mezclar con contraseñas de la base de datos
     valid_networks = merge_with_stored_passwords(valid_networks, serial_number)
-
+    
     return valid_networks, ip, mac
-
 
 def extract_ip_mac_for_product_class(igw, product_class):
     """Extraer IP/MAC usando configuración específica del Product Class"""
     config = DEVICE_KNOWLEDGE_BASE[product_class]
-
+    
     ip_path = config["ip_param"].split('.')[1:]
     mac_path = config["mac_param"].split('.')[1:]
-
+    
     ip = safe_get_value(igw, ip_path)
     mac = safe_get_value(igw, mac_path)
-
+    
     if (not ip or ip == "0.0.0.0") and product_class == "IGD":
         ip_path_alt = config["ip_param_alt"].split('.')[1:]
         mac_path_alt = config["mac_param_alt"].split('.')[1:]
         ip = safe_get_value(igw, ip_path_alt)
         mac = safe_get_value(igw, mac_path_alt)
-
+    
     return ip, mac
-
 
 def extract_networks_by_knowledge(wlan_configs, product_class, serial_number):
     """Extraer redes usando base de conocimiento específica"""
     networks = []
     config = DEVICE_KNOWLEDGE_BASE[product_class]
-
+    
     if product_class == "IGD":
         networks = extract_igd_networks(wlan_configs, config, serial_number)
     else:
         networks = extract_standard_networks(wlan_configs, config, product_class, serial_number)
-
+    
     # Asegurar máximo 2 redes
     final_networks = []
     has_2_4 = False
     has_5 = False
-
+    
     for network in networks:
         if network['band'] == '2.4GHz' and not has_2_4:
             final_networks.append(network)
@@ -450,31 +464,30 @@ def extract_networks_by_knowledge(wlan_configs, product_class, serial_number):
         elif network['band'] == '5GHz' and not has_5:
             final_networks.append(network)
             has_5 = True
-
+        
         if has_2_4 and has_5:
             break
-
+    
     return final_networks
-
 
 def extract_standard_networks(wlan_configs, config, product_class, serial_number):
     """Extraer redes para Product Classes estándar"""
     networks = []
-
+    
     for band in ["2.4GHz", "5GHz"]:
         if band not in config:
             continue
-
+        
         band_config = config[band]
         wlan_index = band_config["wlan_config"]
-
+        
         if wlan_index in wlan_configs:
             wlan_config = wlan_configs[wlan_index]
             ssid = safe_get_value(wlan_config, ['SSID'])
-
+            
             if ssid and ssid.strip():
                 password = extract_password(wlan_config, band_config)
-
+                
                 network = {
                     "band": band,
                     "ssid": ssid,
@@ -487,28 +500,27 @@ def extract_standard_networks(wlan_configs, config, product_class, serial_number
                     }
                 }
                 networks.append(network)
-
+    
     return networks
-
 
 def extract_igd_networks(wlan_configs, config, serial_number):
     """Extraer redes para dispositivos IGD"""
     networks = []
-
+    
     # Intentar 2.4GHz
     for band_key in ["2.4GHz_primary", "2.4GHz_alt"]:
         if band_key in config:
             band_config = config[band_key]
             wlan_index = band_config["wlan_config"]
-
+            
             if wlan_index in wlan_configs:
                 wlan_config = wlan_configs[wlan_index]
                 ssid = safe_get_value(wlan_config, ['SSID'])
-
+                
                 if ssid and ssid.strip():
                     if is_24ghz_network(ssid, wlan_index):
                         password = extract_password(wlan_config, band_config)
-
+                        
                         network = {
                             "band": "2.4GHz",
                             "ssid": ssid,
@@ -522,21 +534,21 @@ def extract_igd_networks(wlan_configs, config, serial_number):
                         }
                         networks.append(network)
                         break
-
+    
     # Intentar 5GHz
     for band_key in ["5GHz_primary", "5GHz_alt"]:
         if band_key in config:
             band_config = config[band_key]
             wlan_index = band_config["wlan_config"]
-
+            
             if wlan_index in wlan_configs:
                 wlan_config = wlan_configs[wlan_index]
                 ssid = safe_get_value(wlan_config, ['SSID'])
-
+                
                 if ssid and ssid.strip():
                     if is_5ghz_network(ssid, wlan_index):
                         password = extract_password(wlan_config, band_config)
-
+                        
                         network = {
                             "band": "5GHz",
                             "ssid": ssid,
@@ -550,9 +562,8 @@ def extract_igd_networks(wlan_configs, config, serial_number):
                         }
                         networks.append(network)
                         break
-
+    
     return networks
-
 
 def extract_password(wlan_config, band_config):
     """Extraer contraseña usando múltiples métodos"""
@@ -560,12 +571,12 @@ def extract_password(wlan_config, band_config):
     password = safe_get_value(wlan_config, ['KeyPassphrase'])
     if password:
         return password
-
+    
     # Intentar PreSharedKey
     password = safe_get_value(wlan_config, ['PreSharedKey'])
     if password:
         return password
-
+    
     # Buscar en objetos PreSharedKey
     psk_obj = wlan_config.get('PreSharedKey', {})
     if isinstance(psk_obj, dict):
@@ -574,29 +585,30 @@ def extract_password(wlan_config, band_config):
                 psk_value = safe_get_value(value, ['Value'])
                 if psk_value:
                     return psk_value
-
+    
     return ""
-
 
 def is_24ghz_network(ssid, wlan_index):
     """Determinar si es red 2.4GHz"""
     ssid_lower = ssid.lower()
+    
     if '2.4g' in ssid_lower or '2.4ghz' in ssid_lower:
         return True
     if '5g' in ssid_lower or '5ghz' in ssid_lower:
         return False
+    
     return wlan_index == "1"
-
 
 def is_5ghz_network(ssid, wlan_index):
     """Determinar si es red 5GHz"""
     ssid_lower = ssid.lower()
+    
     if '5g' in ssid_lower or '5ghz' in ssid_lower:
         return True
     if '2.4g' in ssid_lower or '2.4ghz' in ssid_lower:
         return False
+    
     return wlan_index in ["5", "6"]
-
 
 def merge_with_stored_passwords(networks, serial_number):
     """Mezclar redes con contraseñas almacenadas en la base de datos"""
@@ -606,40 +618,42 @@ def merge_with_stored_passwords(networks, serial_number):
             network['password'] = stored_password
     return networks
 
-
 def load_devices_from_genieacs():
     """Cargar dispositivos directamente desde GenieACS"""
     logger.info("🔄 Cargando dispositivos desde GenieACS API...")
+    
     raw_devices = get_devices_from_genieacs()
-
     if not raw_devices:
         logger.error("❌ No se pudieron obtener dispositivos desde GenieACS")
         return []
-
+    
     logger.info(f"📋 Dispositivos encontrados en GenieACS: {len(raw_devices)}")
-
+    
     wifi_devices = []
     for device in raw_devices:
         device_info = extract_device_info(device)
         product_class = device_info["product_class"]
-
+        
         if product_class not in DEVICE_KNOWLEDGE_BASE:
             continue
-
+        
         wifi_networks, ip, mac = extract_wifi_networks(device_info)
-
+        
         if wifi_networks and ip and ip != "0.0.0.0":
             # Obtener contrato y determinar si está configurado
             contract_number = DatabaseService.get_device_contract(device_info["serial_number"])
             configured = DatabaseService.is_device_configured(device_info["serial_number"])
-
+            
+            # Obtener información adicional de la base de datos
+            full_info = DatabaseService.get_device_full_info(device_info["serial_number"])
+            
             # Obtener SSID 5GHz para título
             ssid_5g = ""
             for network in wifi_networks:
                 if network['band'] == '5GHz':
                     ssid_5g = network['ssid']
                     break
-
+            
             device_final = {
                 "serial_number": device_info["serial_number"],
                 "product_class": product_class,
@@ -652,36 +666,37 @@ def load_devices_from_genieacs():
                 "wifi_networks": wifi_networks,
                 "configured": configured,
                 "contract_number": contract_number,
+                "customer_name": full_info.get('customer_name'),
+                "ns": full_info.get('ns'),
                 "title_ssid": ssid_5g
             }
-
+            
             wifi_devices.append(device_final)
-
+    
     logger.info(f"✅ Dispositivos WiFi procesados: {len(wifi_devices)}")
     return wifi_devices
-
 
 def send_task_to_genieacs_correct_api(device_serial, parameter_name, parameter_value):
     """Enviar tarea a GenieACS usando la API CORRECTA"""
     try:
         logger.info(f"🔧 Enviando tarea para {device_serial}")
         logger.info(f"📝 Parámetro: {parameter_name} = {parameter_value}")
-
+        
         device_id_encoded = quote(device_serial, safe='')
         task_url = f"{GENIEACS_URL}/devices/{device_id_encoded}/tasks"
-
+        
         task_data = {
             "name": "setParameterValues",
             "parameterValues": [
                 [parameter_name, parameter_value, "xsd:string"]
             ]
         }
-
+        
         headers = {'Content-Type': 'application/json'}
         auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
-
+        
         logger.info(f"📤 API CORRECTA - Enviando tarea a: {task_url}")
-
+        
         response = requests.post(
             task_url,
             json=task_data,
@@ -689,39 +704,38 @@ def send_task_to_genieacs_correct_api(device_serial, parameter_name, parameter_v
             auth=auth,
             timeout=10
         )
-
+        
         logger.info(f"📋 Respuesta API: {response.status_code}")
-
+        
         if response.status_code in [200, 201, 202]:
             logger.info("✅ Tarea creada exitosamente con API correcta")
             return send_connection_request_correct(device_serial)
         else:
             logger.error(f"❌ Error API correcta: {response.status_code} - {response.text}")
             return try_alternative_api(device_serial, parameter_name, parameter_value)
-
+    
     except Exception as e:
         logger.error(f"❌ Excepción API correcta: {e}")
         return try_alternative_api(device_serial, parameter_name, parameter_value)
-
 
 def try_alternative_api(device_serial, parameter_name, parameter_value):
     """Intentar API alternativa de GenieACS"""
     try:
         logger.info("🔄 Intentando API alternativa...")
-
+        
         device_id_encoded = quote(device_serial, safe='')
         device_url = f"{GENIEACS_URL}/devices/{device_id_encoded}"
-
+        
         device_data = {
             parameter_name: {
                 "_value": parameter_value,
                 "_writable": True
             }
         }
-
+        
         headers = {'Content-Type': 'application/json'}
         auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
-
+        
         response = requests.put(
             device_url,
             json=device_data,
@@ -729,11 +743,11 @@ def try_alternative_api(device_serial, parameter_name, parameter_value):
             auth=auth,
             timeout=10
         )
-
+        
         if response.status_code in [200, 201, 202, 204]:
             logger.info("✅ PUT directo exitoso")
             return send_connection_request_correct(device_serial)
-
+        
         # Método global
         global_task_url = f"{GENIEACS_URL}/tasks"
         global_task_data = {
@@ -743,7 +757,7 @@ def try_alternative_api(device_serial, parameter_name, parameter_value):
                 [parameter_name, parameter_value, "xsd:string"]
             ]
         }
-
+        
         response = requests.post(
             global_task_url,
             json=global_task_data,
@@ -751,17 +765,16 @@ def try_alternative_api(device_serial, parameter_name, parameter_value):
             auth=auth,
             timeout=10
         )
-
+        
         if response.status_code in [200, 201, 202]:
             logger.info("✅ Tarea global exitosa")
             return send_connection_request_correct(device_serial)
-
+        
         return False, f"Todas las APIs fallaron. Último error: {response.status_code}"
-
+    
     except Exception as e:
         logger.error(f"❌ Error en APIs alternativas: {e}")
         return False, str(e)
-
 
 def send_connection_request_correct(device_serial):
     """Enviar connection request con API correcta"""
@@ -772,16 +785,16 @@ def send_connection_request_correct(device_serial):
             f"{GENIEACS_URL}/devices/{device_id_encoded}/connection_request",
             f"{GENIEACS_URL}/devices/{device_id_encoded}/tasks",
         ]
-
+        
         auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
-
+        
         for i, cr_url in enumerate(cr_urls):
             try:
                 response = requests.post(cr_url, auth=auth, timeout=5)
                 if response.status_code in [200, 201, 202, 204]:
                     logger.info(f"✅ Connection request {i+1} exitoso")
                     return True, "Cambios aplicados exitosamente"
-
+                
                 response = requests.get(cr_url, auth=auth, timeout=5)
                 if response.status_code in [200, 201, 202, 204]:
                     logger.info(f"✅ Connection request {i+1} exitoso (GET)")
@@ -789,14 +802,139 @@ def send_connection_request_correct(device_serial):
             except Exception as e:
                 logger.warning(f"⚠️ Connection request {i+1} falló: {e}")
                 continue
-
+        
         logger.info("✅ Cambios enviados correctamente")
         return True, "Cambios aplicados exitosamente"
-
+    
     except Exception as e:
         logger.error(f"❌ Error total en connection request: {e}")
         return True, "Cambios aplicados exitosamente"
 
+# RUTAS DE CSV CON ESTADÍSTICAS MEJORADAS
+
+@app.route('/api/csv/upload', methods=['POST'])
+@login_required
+@role_required(2)  # Nivel Informática o superior
+def upload_csv_file():
+    """Subir y procesar archivo CSV con estadísticas mejoradas"""
+    try:
+        user = get_current_user()
+        if not user:
+            return jsonify({'success': False, 'message': 'Usuario no autenticado'}), 401
+
+        # Verificar si se subió archivo
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'message': 'No se encontró archivo'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No se seleccionó archivo'}), 400
+
+        # Verificar extensión
+        if not allowed_file(file.filename):
+            return jsonify({'success': False, 'message': 'Tipo de archivo no permitido'}), 400
+
+        # Detectar tipo de archivo
+        file_type = request.form.get('file_type')
+        if not file_type:
+            file_type = detect_csv_file_type(file.filename)
+        
+        if not file_type:
+            return jsonify({
+                'success': False,
+                'message': 'No se pudo detectar el tipo de archivo. Nombre debe contener "info1060" o "matched_items"'
+            }), 400
+
+        # Guardar archivo
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{filename}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+
+        logger.info(f"📁 Archivo CSV subido: {filename} por usuario {user['username']}")
+
+        # Procesar archivo con estadísticas mejoradas
+        processor = CSVProcessor()
+        result = processor.process_csv_file(filepath, file_type, user['id'])
+
+        # Limpiar archivo temporal si el procesamiento fue exitoso
+        if result.get('success') and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except:
+                pass
+
+        if result.get('success'):
+            logger.info(f"✅ CSV procesado exitosamente: {result}")
+            
+            response_data = {
+                'success': True,
+                'message': result.get('message', 'Archivo procesado correctamente'),
+                'stats': {
+                    'processed': result.get('processed', 0),
+                    'imported': result.get('imported', 0),
+                    'updated': result.get('updated', 0),
+                    'skipped': result.get('skipped', 0)
+                }
+            }
+            
+            # Agregar estadísticas de cobertura si están disponibles
+            if 'coverage_stats' in result:
+                response_data['coverage_stats'] = result['coverage_stats']
+                
+            return jsonify(response_data)
+        else:
+            # Código especial para archivo ya procesado
+            if result.get('code') == 'ALREADY_PROCESSED':
+                return jsonify({
+                    'success': False,
+                    'message': result.get('message'),
+                    'code': 'ALREADY_PROCESSED'
+                }), 409
+
+            logger.error(f"❌ Error procesando CSV: {result.get('message')}")
+            return jsonify({'success': False, 'message': result.get('message')}), 500
+
+    except Exception as e:
+        logger.error(f"❌ Error en upload CSV: {e}")
+        return jsonify({'success': False, 'message': f'Error interno: {str(e)}'}), 500
+
+@app.route('/api/csv/import-history')
+@login_required
+def get_csv_import_history():
+    """Obtener historial de importaciones CSV"""
+    try:
+        limit = int(request.args.get('limit', 50))
+        history = DatabaseService.get_csv_import_history(limit)
+        return jsonify({
+            'success': True,
+            'history': history,
+            'total': len(history)
+        })
+    except Exception as e:
+        logger.error(f"Error obteniendo historial CSV: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/csv/statistics')
+@login_required
+def get_csv_statistics():
+    """Obtener estadísticas de importación y dispositivos con cobertura"""
+    try:
+        processor = CSVProcessor()
+        import_stats = processor.get_import_statistics()
+        device_stats = DatabaseService.get_devices_with_missing_data()
+        
+        return jsonify({
+            'success': True,
+            'import_stats': import_stats,
+            'device_stats': device_stats
+        })
+    except Exception as e:
+        logger.error(f"Error obteniendo estadísticas: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# RESTO DE RUTAS SE MANTIENEN IGUAL
 
 # RUTAS DE AUTENTICACIÓN
 @app.route('/login', methods=['GET', 'POST'])
@@ -807,30 +945,29 @@ def login():
             data = request.get_json()
             username = data.get('username', '').strip()
             password = data.get('password', '').strip()
-
+            
             if not username or not password:
                 return jsonify({'success': False, 'message': 'Usuario y contraseña son requeridos'}), 400
-
+            
             user = DatabaseService.get_user_by_credentials(username, password)
-
+            
             if user:
                 # Login exitoso
                 session['user_id'] = user.id
                 session['username'] = username
                 session['role'] = user.role
-
+                
                 logger.info(f"✅ Login exitoso: {username}")
                 return jsonify({'success': True, 'message': 'Login exitoso', 'redirect': '/'})
             else:
                 logger.warning(f"❌ Login fallido: {username}")
                 return jsonify({'success': False, 'message': 'Credenciales incorrectas'}), 401
-
+        
         except Exception as e:
             logger.error(f"❌ Error en login: {e}")
             return jsonify({'success': False, 'message': 'Error interno del servidor'}), 500
-
+    
     return render_template('login.html')
-
 
 @app.route('/logout')
 def logout():
@@ -840,19 +977,17 @@ def logout():
     logger.info(f"✅ Logout exitoso: {username}")
     return redirect(url_for('login'))
 
-
 @app.route('/api/current-user')
 def current_user():
     """Obtener información del usuario actual"""
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': 'No autenticado'}), 401
-
+    
     user = get_current_user()
     if user:
         return jsonify({'success': True, 'user': user})
     else:
         return jsonify({'success': False, 'message': 'Usuario no encontrado'}), 401
-
 
 # RUTAS PRINCIPALES
 @app.route('/')
@@ -861,18 +996,17 @@ def index():
     """Página principal"""
     return render_template('index.html')
 
-
 @app.route('/api/devices')
 @login_required
 def get_devices():
-    """Obtener lista de dispositivos WiFi desde GenieACS API"""
+    """Obtener lista de dispositivos WiFi desde GenieACS API con datos enriquecidos"""
     try:
         devices = load_devices_from_genieacs()
-
+        
         # Separar en configurados y no configurados
         configured_devices = [d for d in devices if d.get('configured', False)]
         unconfigured_devices = [d for d in devices if not d.get('configured', False)]
-
+        
         return jsonify({
             'success': True,
             'devices': {
@@ -882,11 +1016,10 @@ def get_devices():
             'total': len(devices),
             'last_update': datetime.utcnow().isoformat()
         })
-
+    
     except Exception as e:
         logger.error(f"Error obteniendo dispositivos: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
 
 @app.route('/api/search')
 @login_required
@@ -895,19 +1028,19 @@ def search_devices():
     try:
         query = request.args.get('query', '').strip().lower()
         filter_type = request.args.get('filter', 'all')  # all, configured, unconfigured
-
+        
         devices = load_devices_from_genieacs()
-
+        
         if not query:
             # Sin query, filtrar solo por tipo
             if filter_type == 'configured':
                 devices = [d for d in devices if d.get('configured', False)]
             elif filter_type == 'unconfigured':
                 devices = [d for d in devices if not d.get('configured', False)]
-
+            
             configured_devices = [d for d in devices if d.get('configured', False)]
             unconfigured_devices = [d for d in devices if not d.get('configured', False)]
-
+            
             return jsonify({
                 'success': True,
                 'devices': {
@@ -916,7 +1049,7 @@ def search_devices():
                 },
                 'total': len(devices)
             })
-
+        
         filtered_devices = []
         for device in devices:
             # Aplicar filtro de tipo primero
@@ -924,40 +1057,44 @@ def search_devices():
                 continue
             elif filter_type == 'unconfigured' and device.get('configured', False):
                 continue
-
+            
             # Buscar en diferentes campos
             matches = []
-
+            
             # Contrato (prioridad más alta)
             if device.get('contract_number') and query in device.get('contract_number', '').lower():
                 matches.append('contract')
-
+            
             # Serial Number
             if query in device.get('serial_number', '').lower():
                 matches.append('serial')
-
+            
             # Product Class
             if query in device.get('product_class', '').lower():
                 matches.append('product_class')
-
+            
             # IP
             if query in device.get('ip', '').lower():
                 matches.append('ip')
-
+            
             # SSID en cualquiera de las redes
             for network in device.get('wifi_networks', []):
                 if query in network.get('ssid', '').lower():
                     matches.append('ssid')
                     break
-
+            
+            # Customer name
+            if device.get('customer_name') and query in device.get('customer_name', '').lower():
+                matches.append('customer_name')
+            
             if matches:
                 device['match_types'] = matches
                 filtered_devices.append(device)
-
+        
         # Separar en configurados y no configurados
         configured_devices = [d for d in filtered_devices if d.get('configured', False)]
         unconfigured_devices = [d for d in filtered_devices if not d.get('configured', False)]
-
+        
         return jsonify({
             'success': True,
             'devices': {
@@ -968,11 +1105,10 @@ def search_devices():
             'query': query,
             'filter': filter_type
         })
-
+    
     except Exception as e:
         logger.error(f"Error en búsqueda: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
 
 # API PARA CONTRATOS (SOLO LOCAL - NO se envía a GenieACS)
 @app.route('/api/device/<device_serial>/contract', methods=['PUT'])
@@ -982,44 +1118,49 @@ def update_contract(device_serial):
     try:
         data = request.get_json()
         new_contract = data.get('contract', '').strip()
-
+        
         # Obtener información del usuario actual
         user = get_current_user()
-
+        
         # Obtener contrato anterior para historial
         old_contract = DatabaseService.get_device_contract(device_serial)
-
+        
         # Almacenar contrato (SOLO LOCAL)
         success, message = DatabaseService.store_contract(device_serial, new_contract, user['id'] if user else None)
-
+        
         if success:
             # Obtener dispositivo para el historial
             devices = load_devices_from_genieacs()
             device = next((d for d in devices if d['serial_number'] == device_serial), None)
-
+            
             if device:
                 # Guardar en historial
                 DatabaseService.store_change_history(
-                    device_serial, device['product_class'], None,
-                    'CONTRACT', old_contract or '[VACÍO]', new_contract or '[VACÍO]',
+                    serial_number=device_serial,
+                    product_class=device.get('product_class', ''),
+                    band=None,
+                    change_type='CONTRACT',
+                    old_value=old_contract or 'Sin contrato',
+                    new_value=new_contract or 'Sin contrato',
+                    ssid=None,
                     contract_number=new_contract,
                     user_id=user['id'] if user else None,
                     username=user['username'] if user else 'Sistema'
                 )
-
+            
+            logger.info(f"✅ Contrato actualizado: {device_serial} -> {new_contract}")
             return jsonify({
                 'success': True,
-                'message': 'Contrato actualizado correctamente',
-                'new_contract': new_contract
+                'message': 'Contrato actualizado correctamente'
             })
         else:
             return jsonify({'success': False, 'message': message}), 500
-
+    
     except Exception as e:
-        logger.error(f"❌ Error actualizando contrato: {e}")
+        logger.error(f"Error actualizando contrato: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
-
+# API PARA CAMBIOS DE WiFi (Envía a GenieACS)
 @app.route('/api/device/<device_serial>/wifi/<band>/ssid', methods=['PUT'])
 @login_required
 def update_ssid(device_serial, band):
@@ -1027,58 +1168,54 @@ def update_ssid(device_serial, band):
     try:
         data = request.get_json()
         new_ssid = data.get('ssid', '').strip()
-
+        
         if not new_ssid:
             return jsonify({'success': False, 'message': 'SSID no puede estar vacío'}), 400
-
-        if len(new_ssid) > 32:
-            return jsonify({'success': False, 'message': 'SSID no puede tener más de 32 caracteres'}), 400
-
-        # Obtener dispositivos actuales
+        
+        user = get_current_user()
+        
+        # Obtener dispositivo de GenieACS para encontrar el parámetro correcto
         devices = load_devices_from_genieacs()
         device = next((d for d in devices if d['serial_number'] == device_serial), None)
-
+        
         if not device:
             return jsonify({'success': False, 'message': 'Dispositivo no encontrado'}), 404
-
-        network = next((n for n in device.get('wifi_networks', []) if n['band'] == band), None)
-
+        
+        # Encontrar la red específica
+        network = next((n for n in device['wifi_networks'] if n['band'] == band), None)
         if not network:
-            return jsonify({'success': False, 'message': 'Red WiFi no encontrada'}), 404
-
-        ssid_parameter = network['parameter_paths']['ssid']
+            return jsonify({'success': False, 'message': f'Red {band} no encontrada'}), 404
+        
+        # Obtener SSID anterior para historial
         old_ssid = network['ssid']
-
-        logger.info(f"🔧 Actualizando SSID para {device_serial}")
-        logger.info(f"📝 Banda: {band}, Nuevo SSID: {new_ssid}")
-
-        success, message = send_task_to_genieacs_correct_api(device_serial, ssid_parameter, new_ssid)
-
+        
+        # Enviar cambio a GenieACS
+        ssid_param = network['parameter_paths']['ssid']
+        success, message = send_task_to_genieacs_correct_api(device_serial, ssid_param, new_ssid)
+        
         if success:
-            # Obtener información del usuario actual
-            user = get_current_user()
-            contract_number = DatabaseService.get_device_contract(device_serial)
-
             # Guardar en historial
             DatabaseService.store_change_history(
-                device_serial, device['product_class'], band,
-                'SSID', old_ssid, new_ssid, new_ssid, contract_number,
-                user['id'] if user else None,
-                user['username'] if user else 'Sistema'
+                serial_number=device_serial,
+                product_class=device['product_class'],
+                band=band,
+                change_type='SSID',
+                old_value=old_ssid,
+                new_value=new_ssid,
+                ssid=new_ssid,
+                contract_number=device.get('contract_number'),
+                user_id=user['id'] if user else None,
+                username=user['username'] if user else 'Sistema'
             )
-
-            return jsonify({
-                'success': True,
-                'message': message,
-                'new_ssid': new_ssid
-            })
+            
+            logger.info(f"✅ SSID actualizado: {device_serial}:{band} -> {new_ssid}")
+            return jsonify({'success': True, 'message': message})
         else:
             return jsonify({'success': False, 'message': message}), 500
-
+    
     except Exception as e:
-        logger.error(f"❌ Error actualizando SSID: {e}")
+        logger.error(f"Error actualizando SSID: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
 
 @app.route('/api/device/<device_serial>/wifi/<band>/password', methods=['PUT'])
 @login_required
@@ -1087,83 +1224,62 @@ def update_password(device_serial, band):
     try:
         data = request.get_json()
         new_password = data.get('password', '').strip()
-
+        
         if new_password and (len(new_password) < 8 or len(new_password) > 63):
-            return jsonify({'success': False, 'message': 'Contraseña debe tener entre 8 y 63 caracteres'}), 400
-
-        # Obtener dispositivos actuales
+            return jsonify({'success': False, 'message': 'La contraseña debe tener entre 8 y 63 caracteres'}), 400
+        
+        user = get_current_user()
+        
+        # Obtener dispositivo de GenieACS para encontrar el parámetro correcto
         devices = load_devices_from_genieacs()
         device = next((d for d in devices if d['serial_number'] == device_serial), None)
-
+        
         if not device:
             return jsonify({'success': False, 'message': 'Dispositivo no encontrado'}), 404
-
-        network = next((n for n in device.get('wifi_networks', []) if n['band'] == band), None)
-
+        
+        # Encontrar la red específica
+        network = next((n for n in device['wifi_networks'] if n['band'] == band), None)
         if not network:
-            return jsonify({'success': False, 'message': 'Red WiFi no encontrada'}), 404
-
-        password_parameter = network['parameter_paths']['password']
+            return jsonify({'success': False, 'message': f'Red {band} no encontrada'}), 404
+        
+        # Obtener contraseña anterior para historial
         old_password = network['password']
-        ssid = network['ssid']
-
-        logger.info(f"🔧 Actualizando contraseña para {device_serial}")
-        logger.info(f"📝 Banda: {band}, Nueva contraseña: {'[OCULTA]' if new_password else '[VACÍA]'}")
-
-        success, message = send_task_to_genieacs_correct_api(device_serial, password_parameter, new_password)
-
+        
+        # Enviar cambio a GenieACS
+        password_param = network['parameter_paths']['password']
+        success, message = send_task_to_genieacs_correct_api(device_serial, password_param, new_password)
+        
         if success:
-            # Obtener información del usuario actual
-            user = get_current_user()
-            contract_number = DatabaseService.get_device_contract(device_serial)
-
-            # Almacenar contraseña en base de datos
-            DatabaseService.store_password(device_serial, band, ssid, new_password)
-
-            # Guardar en historial con contraseñas normalizadas
+            # Guardar contraseña cifrada en la base de datos
+            DatabaseService.store_password(device_serial, band, network['ssid'], new_password)
+            
+            # Guardar en historial
             DatabaseService.store_change_history(
-                device_serial, device['product_class'], band,
-                'PASSWORD', old_password, new_password, ssid, contract_number,
-                user['id'] if user else None,
-                user['username'] if user else 'Sistema'
+                serial_number=device_serial,
+                product_class=device['product_class'],
+                band=band,
+                change_type='PASSWORD',
+                old_value=normalize_password_for_history(old_password),
+                new_value=normalize_password_for_history(new_password),
+                ssid=network['ssid'],
+                contract_number=device.get('contract_number'),
+                user_id=user['id'] if user else None,
+                username=user['username'] if user else 'Sistema'
             )
-
-            return jsonify({
-                'success': True,
-                'message': message,
-                'has_password': bool(new_password)
-            })
+            
+            logger.info(f"✅ Contraseña actualizada: {device_serial}:{band}")
+            return jsonify({'success': True, 'message': message})
         else:
             return jsonify({'success': False, 'message': message}), 500
-
+    
     except Exception as e:
-        logger.error(f"❌ Error actualizando contraseña: {e}")
+        logger.error(f"Error actualizando contraseña: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@app.route('/api/refresh', methods=['POST'])
-@login_required
-def refresh_data():
-    """Recargar datos desde GenieACS"""
-    try:
-        logger.info("🔄 Recargando datos desde GenieACS...")
-        devices = load_devices_from_genieacs()
-
-        return jsonify({
-            'success': True,
-            'message': 'Datos recargados correctamente desde GenieACS',
-            'total_devices': len(devices)
-        })
-
-    except Exception as e:
-        logger.error(f"❌ Error recargando datos: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 
 @app.route('/api/history')
 @login_required
-def get_history():
-    """Obtener historial de cambios"""
+def get_change_history():
+    """Obtener historial de cambios con filtros opcionales"""
     try:
         # Parámetros de búsqueda
         ssid_filter = request.args.get('ssid', '')
@@ -1171,7 +1287,7 @@ def get_history():
         user_filter = request.args.get('username', '')
         contract_filter = request.args.get('contract', '')
         limit = int(request.args.get('limit', 100))
-
+        
         history = DatabaseService.get_change_history(
             limit=limit,
             serial_filter=None,
@@ -1179,17 +1295,16 @@ def get_history():
             user_filter=user_filter if user_filter else None,
             ssid_filter=ssid_filter if ssid_filter else None
         )
-
+        
         return jsonify({
             'success': True,
             'history': history,
             'total': len(history)
         })
-
+    
     except Exception as e:
         logger.error(f"Error obteniendo historial: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
 
 # API PARA GESTIÓN DE USUARIOS
 @app.route('/api/users', methods=['GET'])
@@ -1199,17 +1314,16 @@ def get_users():
     try:
         current_user = get_current_user()
         users = DatabaseService.get_all_users(current_user['role'])
-
+        
         return jsonify({
             'success': True,
             'users': users,
             'roles': USER_ROLES
         })
-
+    
     except Exception as e:
         logger.error(f"Error obteniendo usuarios: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
 
 @app.route('/api/users', methods=['POST'])
 @role_required(2)  # Nivel Informática o superior
@@ -1220,24 +1334,24 @@ def create_user():
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
         role = data.get('role', 'callcenter')
-
+        
         if not username or not password:
             return jsonify({'success': False, 'message': 'Usuario y contraseña son requeridos'}), 400
-
+        
         if len(password) < 6:
             return jsonify({'success': False, 'message': 'La contraseña debe tener al menos 6 caracteres'}), 400
-
+        
         if role not in USER_ROLES:
             return jsonify({'success': False, 'message': 'Rol inválido'}), 400
-
+        
         current_user = get_current_user()
-
+        
         # Verificar permisos para crear roles
         if current_user['role'] != 'noc' and role != 'callcenter':
             return jsonify({'success': False, 'message': 'No tienes permisos para crear usuarios con ese rol'}), 403
-
+        
         success, message = DatabaseService.create_user(username, password, role)
-
+        
         if success:
             logger.info(f"✅ Usuario creado: {username} con rol {role}")
             return jsonify({
@@ -1246,11 +1360,10 @@ def create_user():
             })
         else:
             return jsonify({'success': False, 'message': message}), 400
-
+    
     except Exception as e:
         logger.error(f"Error creando usuario: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @role_required(2)  # Nivel Informática o superior
@@ -1258,13 +1371,13 @@ def delete_user(user_id):
     """Eliminar usuario"""
     try:
         current_user = get_current_user()
-
+        
         # No se puede eliminar a sí mismo
         if current_user['id'] == user_id:
             return jsonify({'success': False, 'message': 'No puedes eliminarte a ti mismo'}), 400
-
+        
         success, message = DatabaseService.delete_user(user_id, current_user['role'])
-
+        
         if success:
             logger.info(f"✅ Usuario eliminado por {current_user['username']}")
             return jsonify({
@@ -1273,11 +1386,24 @@ def delete_user(user_id):
             })
         else:
             return jsonify({'success': False, 'message': message}), 400
-
+    
     except Exception as e:
         logger.error(f"Error eliminando usuario: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@app.route('/api/devices/<device_serial>/full-info')
+@login_required
+def get_device_full_info(device_serial):
+    """Obtener información completa de un dispositivo"""
+    try:
+        info = DatabaseService.get_device_full_info(device_serial)
+        return jsonify({
+            'success': True,
+            'device_info': info
+        })
+    except Exception as e:
+        logger.error(f"Error obteniendo info completa del dispositivo: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # API PARA CAMBIO DE TEMA
 @app.route('/api/user/theme', methods=['PUT'])
@@ -1287,13 +1413,13 @@ def update_user_theme():
     try:
         data = request.get_json()
         theme = data.get('theme', 'system')
-
+        
         if theme not in ['light', 'dark', 'system']:
             return jsonify({'success': False, 'message': 'Tema inválido'}), 400
-
+        
         user = get_current_user()
         success, message = DatabaseService.update_user_theme(user['id'], theme)
-
+        
         if success:
             logger.info(f"✅ Tema actualizado para {user['username']}: {theme}")
             return jsonify({
@@ -1303,11 +1429,10 @@ def update_user_theme():
             })
         else:
             return jsonify({'success': False, 'message': message}), 500
-
+    
     except Exception as e:
         logger.error(f"Error actualizando tema: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
-
 
 @app.route('/api/user/theme', methods=['GET'])
 @login_required
@@ -1316,22 +1441,51 @@ def get_user_theme():
     try:
         user = get_current_user()
         user_obj = DatabaseService.get_user_by_id(user['id'])
-
         theme = user_obj.theme if user_obj else 'system'
-
+        
         return jsonify({
             'success': True,
             'theme': theme
         })
-
+    
     except Exception as e:
         logger.error(f"Error obteniendo tema: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+# FUNCIÓN DE INICIALIZACIÓN AUTOMÁTICA
+def initialize_csv_processing():
+    """Inicializar procesamiento automático de CSVs al arrancar la app"""
+    try:
+        logger.info("🔄 Iniciando procesamiento automático de CSVs...")
+        
+        # Buscar usuario admin para el procesamiento automático
+        admin_user = User.query.filter(User.role == 'noc').first()
+        if not admin_user:
+            logger.warning("⚠️ No se encontró usuario NOC para procesamiento automático")
+            return
+        
+        processor = CSVProcessor()
+        
+        # Procesar matched_items.csv siempre al arrancar
+        matched_items_path = os.path.join('data', 'matched_items.csv')
+        if os.path.exists(matched_items_path):
+            logger.info("📋 Procesando matched_items.csv...")
+            result = processor.process_csv_file(matched_items_path, 'matched_items', admin_user.id)
+            
+            if result.get('success'):
+                logger.info(f"✅ matched_items.csv procesado: {result.get('message')}")
+                if 'coverage_stats' in result:
+                    logger.info(f"📊 Estadísticas de cobertura: {result['coverage_stats']}")
+            else:
+                logger.warning(f"⚠️ Error procesando matched_items.csv: {result.get('message')}")
+        
+        logger.info("✅ Procesamiento automático de CSVs completado")
+    
+    except Exception as e:
+        logger.error(f"❌ Error en procesamiento automático de CSVs: {e}")
 
-# FUNCIÓN PRINCIPAL
 if __name__ == '__main__':
-    print("🚀 Iniciando GenieACS WiFi Manager con MySQL")
+    print("🚀 Iniciando GenieACS WiFi Manager con MySQL y Procesamiento CSV Masivo")
     print(f"📡 Servidor GenieACS: {GENIEACS_URL}")
     print("")
     print("👥 Usuarios por defecto:")
@@ -1339,61 +1493,50 @@ if __name__ == '__main__':
     print("   • informatica/info123 (Informática - Admin)")
     print("   • callcenter/call123 (Call Center - Operador)")
     print("")
-
+    print("📂 Archivos CSV soportados:")
+    print("   • info1060_F6600R.csv - SSID y contraseñas por modelo")
+    print("   • matched_items.csv - Contratos y datos de cliente")
+    print("")
+    
     # Verificar conexión con base de datos
     try:
         from sqlalchemy import text, inspect
-
+        
         with app.app_context():
             # Probar conexión a MySQL (SQLAlchemy 2.x compatible)
             db.session.execute(text('SELECT 1'))
             logger.info("✅ Conexión MySQL exitosa")
-
+            
             # Verificar que las tablas existan
             inspector = inspect(db.engine)
             tables = inspector.get_table_names()
-
-            required_tables = ['users', 'device_contracts', 'wifi_passwords', 'change_history']
+            
+            required_tables = [
+                'users', 'device_contracts', 'wifi_passwords', 'change_history',
+                'device_info', 'csv_import_history', 'device_cache'
+            ]
+            
             missing_tables = [table for table in required_tables if table not in tables]
-
             if missing_tables:
                 logger.error(f"❌ Tablas faltantes en MySQL: {missing_tables}")
                 logger.error("💡 Ejecuta: python init_db.py")
                 exit(1)
             else:
                 logger.info(f"✅ Todas las tablas MySQL presentes: {len(tables)} tablas")
-
-        print("")
-
-        # Probar conexión con GenieACS
-        try:
-            devices = load_devices_from_genieacs()
-            if devices:
-                configured_count = len([d for d in devices if d.get('configured', False)])
-                unconfigured_count = len([d for d in devices if not d.get('configured', False)])
-                contracts_count = len([d for d in devices if d.get('contract_number')])
-                total_networks = sum(len(d.get('wifi_networks', [])) for d in devices)
-                product_classes = set(d.get('product_class') for d in devices if d.get('product_class'))
-
-                print(f"📊 Estado de Dispositivos:")
-                print(f"   📋 Total: {len(devices)}")
-                print(f"   ✅ Configurados: {configured_count}")
-                print(f"   ⚙️ No configurados: {unconfigured_count}")
-                print(f"   📄 Con contrato: {contracts_count}")
-                print(f"   🔧 Modelos: {len(product_classes)} tipos")
-                print(f"   📶 Redes WiFi: {total_networks}")
-            else:
-                print("⚠️ No se pudieron cargar dispositivos desde GenieACS")
-
-        except Exception as e:
-            print(f"⚠️ Error conectando con GenieACS: {e}")
-
-        print(f"\n🌐 Servidor disponible en: http://localhost:5000")
-        print("🔐 MySQL integrado con XAMPP")
-
-        # Ejecutar servidor
-        app.run(debug=True, host='0.0.0.0', port=5000)
-
+            
+            print("")
+            
+            # Inicializar procesamiento automático de CSVs
+            initialize_csv_processing()
+            
+            print(f"\n🌐 Servidor disponible en: http://localhost:5000")
+            print("🔐 MySQL integrado con XAMPP")
+            print("📊 Procesamiento CSV masivo habilitado")
+            print("📈 Estadísticas de cobertura en tiempo real")
+            
+            # Ejecutar servidor
+            app.run(debug=True, host='0.0.0.0', port=5000)
+    
     except Exception as e:
         logger.error(f"❌ Error de conexión MySQL: {e}")
         logger.error("💡 Verifica que:")
