@@ -1,305 +1,180 @@
-#!/usr/bin/env python3
-"""
-Script de inicialización de la base de datos MySQL - CORREGIDO PARA SQLALCHEMY 2.x
-Ejecutar este script después de configurar las credenciales en config_db.py
-"""
+# init_db_fixed.py - INICIALIZADOR CORREGIDO PARA NUEVA BASE DE DATOS
 
-import sys
-import logging
 from flask import Flask
-from sqlalchemy import text, inspect
-from config_db import SQLALCHEMY_DATABASE_URI, SQLALCHEMY_TRACK_MODIFICATIONS, SQLALCHEMY_ENGINE_OPTIONS
-from models import db, User, DeviceContract, WifiPassword, ChangeHistory, DeviceCache
+from models import db, User, Device, CustomerInfo, WifiNetwork, ChangeHistory, CSVImportHistory
 from db_services import DatabaseService
+from config_db import SQLALCHEMY_DATABASE_URI
+import logging
 
 # Configurar logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def create_app():
-    """Crear aplicación Flask para inicialización"""
-    app = Flask(__name__)
-    
-    # Configurar base de datos
-    app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = SQLALCHEMY_TRACK_MODIFICATIONS
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = SQLALCHEMY_ENGINE_OPTIONS
-    
-    # Inicializar extensiones
-    db.init_app(app)
-    
-    return app
+# Crear aplicación Flask temporal
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-def test_connection():
-    """Probar conexión a MySQL usando SQLAlchemy 2.x"""
-    try:
-        app = create_app()
-        with app.app_context():
-            # SQLAlchemy 2.x: usar db.session.execute(text()) en lugar de engine.execute()
-            result = db.session.execute(text('SELECT 1 as test'))
-            test_value = result.scalar()
-            if test_value == 1:
-                logger.info("✅ Conexión MySQL exitosa")
-                return True
-            else:
-                logger.error("❌ Conexión fallida: resultado inesperado")
-                return False
-    except Exception as e:
-        logger.error(f"❌ Error de conexión: {e}")
-        return False
+# Inicializar base de datos
+db.init_app(app)
 
-def init_database():
-    """Inicializar base de datos completa"""
-    try:
-        logger.info("🔧 Iniciando configuración de base de datos MySQL...")
-        
-        # Crear aplicación Flask
-        app = create_app()
-        
-        with app.app_context():
-            # Probar conexión primero
-            logger.info("🔗 Probando conexión inicial...")
-            try:
-                db.session.execute(text('SELECT 1'))
-                logger.info("✅ Conexión inicial exitosa")
-            except Exception as e:
-                logger.error(f"❌ Error de conexión inicial: {e}")
-                raise
-            
-            logger.info("📋 Creando tablas en MySQL...")
-            
-            # Crear todas las tablas - SQLAlchemy 2.x compatible
+def create_tables():
+    """Crear todas las tablas de la nueva base de datos"""
+    with app.app_context():
+        try:
+            logger.info("🔧 Creando tablas de base de datos OPTIMIZADA...")
+
+            # Crear todas las tablas
             db.create_all()
-            
-            # Verificar que las tablas se crearon
-            logger.info("🔍 Verificando tablas creadas...")
+
+            # Verificar tablas creadas
+            from sqlalchemy import inspect
             inspector = inspect(db.engine)
             tables = inspector.get_table_names()
+
+            required_tables = [
+                'users', 'devices', 'customer_info', 'wifi_networks', 
+                'change_history', 'csv_import_history'
+            ]
+
+            created_tables = []
+            missing_tables = []
             
-            logger.info("✅ Tablas creadas exitosamente:")
-            logger.info(" • users - Gestión de usuarios del sistema")
-            logger.info(" • device_contracts - Contratos de dispositivos")
-            logger.info(" • wifi_passwords - Contraseñas WiFi actuales")
-            logger.info(" • change_history - Historial de cambios")
-            
-            # Verificar tablas requeridas
-            required_tables = ['users', 'device_contracts', 'wifi_passwords', 'change_history']
-            missing_tables = [table for table in required_tables if table not in tables]
-            
+            for table in required_tables:
+                if table in tables:
+                    created_tables.append(table)
+                else:
+                    missing_tables.append(table)
+
             if missing_tables:
                 logger.error(f"❌ Tablas faltantes: {missing_tables}")
                 return False
-            
-            # Verificar si device_cache está presente (opcional)
-            if 'device_cache' in tables:
-                logger.info(" • device_cache - Cache de dispositivos (opcional)")
-            
+
+            logger.info("✅ Todas las tablas creadas exitosamente:")
+            for table in created_tables:
+                logger.info(f" • {table}")
+
             # Crear usuarios por defecto
             logger.info("👥 Creando usuarios por defecto...")
             DatabaseService.create_default_users()
-            
-            # Verificar conexión final y contar usuarios
-            logger.info("🔍 Verificación final...")
-            try:
-                user_count = User.query.count()
-                logger.info(f"✅ Conexión final exitosa. Usuarios en base: {user_count}")
-            except Exception as e:
-                logger.error(f"❌ Error en verificación final: {e}")
-                raise
-            
-            # Probar algunas operaciones básicas
-            logger.info("🧪 Probando operaciones básicas...")
-            try:
-                # Probar consulta simple
-                admin_user = User.query.filter_by(username='admin').first()
-                if admin_user:
-                    logger.info(f"✅ Usuario admin encontrado con rol: {admin_user.role}")
-                else:
-                    logger.warning("⚠️ Usuario admin no encontrado")
-                
-                # Probar inserción de datos de prueba (opcional)
-                test_result = db.session.execute(text("SELECT COUNT(*) as count FROM users"))
-                count = test_result.scalar()
-                logger.info(f"✅ Total usuarios en base: {count}")
-                
-            except Exception as e:
-                logger.error(f"❌ Error en pruebas básicas: {e}")
-                raise
-            
-            logger.info("🎉 ¡Base de datos MySQL inicializada correctamente!")
-            logger.info("")
-            logger.info("👥 Usuarios creados:")
-            logger.info(" • admin / admin123 (NOC - Superadmin)")
-            logger.info(" • informatica / info123 (Informática - Admin)")
-            logger.info(" • callcenter / call123 (Call Center - Operador)")
-            logger.info("")
-            logger.info("🚀 Tu aplicación está lista para usar MySQL con XAMPP")
-            logger.info("💡 Puedes ejecutar: python app.py")
-            
+
+            # Crear algunos datos de ejemplo
+            create_sample_data()
+
+            logger.info("🎉 Base de datos inicializada completamente")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Error creando tablas: {e}")
+            return False
+
+def create_sample_data():
+    """Crear dispositivos de ejemplo"""
+    try:
+        logger.info("📝 Creando datos de ejemplo...")
+
+        # Verificar si ya existen datos
+        if Device.query.first():
+            logger.info(" • Ya existen datos, omitiendo creación de ejemplos")
+            return
+
+        # Crear dispositivo de ejemplo
+        device = Device(
+            serial_number='TEST001',
+            mac_address='AA:BB:CC:DD:EE:FF',
+            product_class='F6600R',
+            software_version='1.0.0',
+            hardware_version='1.0',
+            ip_address='192.168.1.100',
+            last_inform='12/09/2025 14:30'
+        )
+        db.session.add(device)
+        db.session.flush()
+
+        # Crear redes WiFi de ejemplo
+        wifi_24 = WifiNetwork(
+            device_id=device.id,
+            band='2.4GHz',
+            ssid_current='WiFiTest_2.4G',
+            is_primary=False,
+            wlan_configuration='1'
+        )
+        db.session.add(wifi_24)
+
+        wifi_5 = WifiNetwork(
+            device_id=device.id,
+            band='5GHz',
+            ssid_current='WiFiTest_5G',
+            is_primary=True,
+            wlan_configuration='5'
+        )
+        db.session.add(wifi_5)
+
+        db.session.commit()
+        logger.info("✅ Datos de ejemplo creados")
+
     except Exception as e:
-        logger.error(f"❌ ERROR DE INICIALIZACIÓN: {e}")
+        db.session.rollback()
+        logger.error(f"❌ Error creando datos de ejemplo: {e}")
+
+def verify_database_connection():
+    """Verificar conexión a la base de datos"""
+    try:
+        with app.app_context():
+            db.session.execute(db.text('SELECT 1'))
+            logger.info("✅ Conexión a base de datos verificada")
+            return True
+    except Exception as e:
+        logger.error(f"❌ Error de conexión: {e}")
         logger.error("💡 Verifica que:")
         logger.error(" • XAMPP esté ejecutándose")
-        logger.error(" • MySQL esté iniciado en XAMPP")
-        logger.error(" • Las credenciales en config_db.py sean correctas")
-        logger.error(" • La base de datos exista en phpMyAdmin")
-        logger.error(" • El usuario MySQL tenga permisos para crear tablas")
+        logger.error(" • MySQL esté iniciado")
+        logger.error(" • Las credenciales sean correctas")
         return False
-    
-    return True
 
-def show_database_info():
-    """Mostrar información de la base de datos"""
-    try:
-        app = create_app()
-        with app.app_context():
-            logger.info("📊 INFORMACIÓN DE LA BASE DE DATOS:")
-            logger.info("=" * 50)
-            
-            # Información de conexión
-            logger.info(f"🔗 URI: {SQLALCHEMY_DATABASE_URI}")
-            
-            # Tablas existentes
-            inspector = inspect(db.engine)
-            tables = inspector.get_table_names()
-            logger.info(f"📋 Tablas ({len(tables)}): {', '.join(tables)}")
-            
-            # Información de usuarios
-            try:
-                user_count = User.query.count()
-                users = User.query.all()
-                logger.info(f"👥 Usuarios ({user_count}):")
-                for user in users:
-                    status = "✅ Activo" if user.is_active else "❌ Inactivo"
-                    last_login = user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else "Nunca"
-                    logger.info(f"   • {user.username} ({user.role}) - {status} - Último login: {last_login}")
-            except Exception as e:
-                logger.error(f"❌ Error obteniendo usuarios: {e}")
-            
-            # Información de contratos
-            try:
-                contract_count = DeviceContract.query.count()
-                logger.info(f"📄 Contratos de dispositivos: {contract_count}")
-            except Exception as e:
-                logger.error(f"❌ Error obteniendo contratos: {e}")
-            
-            # Información de contraseñas WiFi
-            try:
-                password_count = WifiPassword.query.count()
-                logger.info(f"🔐 Contraseñas WiFi almacenadas: {password_count}")
-            except Exception as e:
-                logger.error(f"❌ Error obteniendo contraseñas: {e}")
-            
-            # Información de historial
-            try:
-                history_count = ChangeHistory.query.count()
-                logger.info(f"📜 Registros de historial: {history_count}")
-            except Exception as e:
-                logger.error(f"❌ Error obteniendo historial: {e}")
-                
-    except Exception as e:
-        logger.error(f"❌ Error mostrando información de BD: {e}")
+def show_connection_info():
+    """Mostrar información de conexión"""
+    print("=" * 60)
+    print("🔧 INICIALIZADOR - GenieACS WiFi Manager OPTIMIZADO")
+    print("=" * 60)
+    print(f"🔗 Conectando a: {SQLALCHEMY_DATABASE_URI}")
+    print("📋 Tablas a crear:")
+    print(" • users - Usuarios del sistema")
+    print(" • devices - Dispositivos (info técnica desde GenieACS)")
+    print(" • customer_info - Información del cliente (desde CSV)")
+    print(" • wifi_networks - Redes WiFi (SSID + contraseñas)")
+    print(" • change_history - Historial de cambios")
+    print(" • csv_import_history - Historial de importaciones")
+    print("=" * 60)
 
-def reset_database():
-    """Resetear completamente la base de datos"""
-    try:
-        logger.info("⚠️ RESETEANDO BASE DE DATOS...")
-        app = create_app()
-        with app.app_context():
-            # Eliminar todas las tablas
-            db.drop_all()
-            logger.info("🗑️ Tablas eliminadas")
-            
-            # Crear nuevamente
-            db.create_all()
-            logger.info("📋 Tablas recreadas")
-            
-            # Crear usuarios por defecto
-            DatabaseService.create_default_users()
-            logger.info("👥 Usuarios por defecto recreados")
-            
-            logger.info("✅ Base de datos reseteada exitosamente")
-            
-    except Exception as e:
-        logger.error(f"❌ Error reseteando base de datos: {e}")
+def main():
+    """Función principal"""
+    show_connection_info()
+
+    # Verificar conexión
+    if not verify_database_connection():
         return False
-    
-    return True
 
-if __name__ == "__main__":
-    print("=" * 60)
-    print("🚀 INICIALIZACIÓN DE BASE DE DATOS MYSQL")
-    print("=" * 60)
-    
-    # Manejar argumentos de línea de comandos
-    if len(sys.argv) > 1:
-        command = sys.argv[1]
-        
-        if command == "--test":
-            print("🧪 Modo de prueba - Solo verificar conexión")
-            if test_connection():
-                print("✅ Conexión MySQL funcionando correctamente")
-                sys.exit(0)
-            else:
-                print("❌ Problema de conexión")
-                sys.exit(1)
-                
-        elif command == "--info":
-            print("📊 Mostrando información de la base de datos")
-            show_database_info()
-            sys.exit(0)
-            
-        elif command == "--reset":
-            print("⚠️ MODO RESET - Eliminará TODOS los datos")
-            confirm = input("¿Estás seguro? Escribe 'RESET' para confirmar: ").strip()
-            if confirm == "RESET":
-                if reset_database():
-                    print("✅ Base de datos reseteada exitosamente")
-                    sys.exit(0)
-                else:
-                    print("❌ Error reseteando base de datos")
-                    sys.exit(1)  
-            else:
-                print("❌ Reset cancelado")
-                sys.exit(1)
-                
-        else:
-            print("❌ Comando no reconocido")
-            print("Comandos disponibles:")
-            print("  --test    : Solo probar conexión")
-            print("  --info    : Mostrar información de BD")
-            print("  --reset   : Resetear completamente la BD")
-            sys.exit(1)
-    
-    # Modo normal - inicialización completa
-    print("⚠️ Este script va a:")
-    print(" • Crear todas las tablas en MySQL")
-    print(" • Crear usuarios por defecto")
-    print(" • Sobreescribir datos existentes si los hay")
-    print("")
-    
-    # Probar conexión primero
-    print("🔗 Probando conexión a MySQL...")
-    if not test_connection():
-        print("❌ No se puede conectar a MySQL")
-        print("💡 Verifica que XAMPP esté ejecutándose y revisa config_db.py")
-        sys.exit(1)
-    
-    # Confirmar antes de proceder
-    confirm = input("¿Continuar con la inicialización? (s/N): ").lower().strip()
-    if confirm not in ['s', 'si', 'sí', 'y', 'yes']:
-        print("❌ Operación cancelada")
-        sys.exit(1)
-    
-    # Ejecutar inicialización
-    if init_database():
-        print("")
-        print("✅ ¡Inicialización completada exitosamente!")
-        print("🎯 Siguiente paso: python app.py")
-        sys.exit(0)
+    # Crear tablas
+    if create_tables():
+        print("\n🎉 ¡Inicialización completada exitosamente!")
+        print("\n📋 Próximos pasos:")
+        print(" 1. Ejecutar: python app_fixed.py")
+        print(" 2. Abrir navegador en: http://localhost:5000")
+        print(" 3. Iniciar sesión con:")
+        print(" • admin/admin123 (Superadmin)")
+        print(" • informatica/info123 (Admin)")
+        print(" • callcenter/call123 (Operador)")
+        print("\n📂 CSV unificado soportado:")
+        print(" Formato: mac_address,contract_number,customer_name,ssid_2_4ghz,password_2_4ghz,ssid_5ghz,password_5ghz")
+        print(" • Los dispositivos se relacionan por MAC address")
+        print(" • Solo se procesan dispositivos NO configurados")
+        print(" • Un dispositivo configurado = contrato + ambas contraseñas")
+        return True
     else:
-        print("❌ Inicialización falló")
-        sys.exit(1)
+        print("\n❌ Error en la inicialización")
+        return False
+
+if __name__ == '__main__':
+    success = main()
+    exit(0 if success else 1)
