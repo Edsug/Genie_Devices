@@ -2421,6 +2421,166 @@ h6 { font-size: var(--font-size-md); }
   color: var(--color-text);
 }
 
+/* Modal para importación CSV */
+#csvImportModal.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.25s ease;
+  z-index: 3000;
+}
+
+#csvImportModal.modal-overlay:not(.hidden) {
+  opacity: 1;
+  visibility: visible;
+}
+
+#csvImportModal .modal {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-width: 600px;
+  width: 90%;
+  max-height: 75vh;
+  overflow-y: auto;
+  transform: scale(0.95);
+  transition: transform 0.3s ease;
+}
+
+#csvImportModal.modal-overlay:not(.hidden) .modal {
+  transform: scale(1);
+}
+
+#csvImportModal .modal-header {
+  padding: var(--space-16) var(--space-24);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#csvImportModal .modal-header h3 {
+  color: var(--color-text);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+#csvImportModal .modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: var(--space-4);
+  border-radius: var(--radius-base);
+  transition: all var(--duration-fast) var(--ease-standard);
+}
+
+#csvImportModal .modal-close:hover {
+  background: var(--color-secondary);
+  color: var(--color-text);
+}
+
+#csvImportModal .modal-body {
+  padding: var(--space-16) var(--space-24);
+}
+
+/* Área de drop */
+#dropArea.upload-area {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-24);
+  text-align: center;
+  background: var(--color-secondary);
+  transition: all var(--duration-fast) var(--ease-standard);
+  cursor: pointer;
+}
+
+#dropArea.upload-area.dragover,
+#dropArea.upload-area:hover {
+  border-color: var(--color-primary);
+  background: var(--color-secondary-hover);
+}
+
+#dropArea .upload-instructions i.fa-file-csv {
+  font-size: 3rem;
+  color: var(--color-primary);
+  margin-bottom: var(--space-12);
+}
+
+#dropArea .upload-instructions h5 {
+  color: var(--color-text);
+  margin-bottom: var(--space-8);
+}
+
+#dropArea .upload-instructions p {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-4);
+}
+
+/* Archivo seleccionado */
+#selectedFileInfo.selected-file {
+  margin-top: var(--space-16);
+  padding: var(--space-12);
+  background: rgba(var(--color-success-rgb), var(--status-bg-opacity));
+  color: var(--color-success);
+  border: 1px solid rgba(var(--color-success-rgb), var(--status-border-opacity));
+  border-radius: var(--radius-base);
+  font-size: var(--font-size-sm);
+}
+
+/* Barra de progreso */
+#csvUploadProgress {
+  width: 100%;
+  height: 16px;
+  border-radius: var(--radius-base);
+  overflow: hidden;
+  margin-top: var(--space-12);
+  appearance: none;
+}
+
+#csvUploadProgress::-webkit-progress-bar {
+  background-color: var(--color-surface);
+}
+
+#csvUploadProgress::-webkit-progress-value {
+  background-color: var(--color-primary);
+  transition: width 0.3s ease;
+}
+
+#csvUploadProgress::-moz-progress-bar {
+  background-color: var(--color-primary);
+}
+
+/* Log de importación */
+#csvUploadLog {
+  margin-top: var(--space-16);
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-base);
+  padding: var(--space-12);
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+
+/* Ocultar elementos */
+.hidden {
+  display: none !important;
+}
+
 /* Utility Classes */
 .loading-text, .empty-message, .error-message {
   text-align: center;

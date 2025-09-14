@@ -12,6 +12,9 @@ let devicesPerPage = 20;
 // Configuración de la API
 const API_BASE = '/api';
 
+// Archivo CSV seleccionado para importación
+let selectedFile = null;
+
 // Inicializar aplicación
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
@@ -149,14 +152,45 @@ function setupEventListeners() {
     });
     
     // Sidebar buttons
-    const csvUploadBtn = document.getElementById('csvUploadBtn');
-    if (csvUploadBtn) {
-        csvUploadBtn.addEventListener('click', function() {
-            closeSidebar();
-            showNotification('Funcionalidad CSV próximamente', 'info');
-        });
-    }
-    
+  const csvUploadBtn = document.getElementById('csvUploadBtn');
+  if (csvUploadBtn) {
+    csvUploadBtn.addEventListener('click', function() {
+      closeSidebar();
+      openCSVImportModal();
+    });
+  }
+
+  // Configurar drag & drop y file input del modal
+  const dropArea = document.getElementById('dropArea');
+  const csvFileInput = document.getElementById('csvFileInput');
+
+  if (dropArea && csvFileInput) {
+    dropArea.addEventListener('click', () => csvFileInput.click());
+
+    dropArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropArea.classList.add('dragover');
+    });
+
+    dropArea.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dropArea.classList.remove('dragover');
+    });
+
+    dropArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropArea.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      handleDroppedFile(file);
+    });
+
+    csvFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      handleDroppedFile(file);
+    });
+  }
+
+
     const showHistoryBtn = document.getElementById('showHistoryBtn');
     if (showHistoryBtn) {
         showHistoryBtn.addEventListener('click', function() {
@@ -172,6 +206,122 @@ function setupEventListeners() {
             showNotification('Historial importaciones próximamente', 'info');
         });
     }
+}
+
+function openCSVImportModal() {
+  const modal = document.getElementById('csvImportModal');
+  if (modal) {
+    modal.classList.remove('hidden');
+  }
+  clearCSVImportLog();
+  clearProgressBar();
+  selectedFile = null;
+}
+
+function closeCSVImportModal() {
+  const modal = document.getElementById('csvImportModal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+  selectedFile = null;
+}
+
+function handleDroppedFile(file) {
+  if (!file) return;
+  if (!file.name.endsWith('.csv')) {
+    logCSVImport('❌ Archivo inválido. Debe ser un archivo .csv');
+    return;
+  }
+  selectedFile = file;
+  const fileInfo = document.getElementById('selectedFileInfo');
+  if (fileInfo) {
+    fileInfo.textContent = `Archivo seleccionado: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    fileInfo.classList.remove('hidden');
+  }
+  resetProgressBar();
+  uploadSelectedCSV();
+}
+
+function uploadSelectedCSV() {
+  if (!selectedFile) {
+    logCSVImport('❌ No hay archivo seleccionado para subir.');
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', selectedFile);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/csv/upload');
+  xhr.withCredentials = true;
+
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      const percent = (e.loaded / e.total) * 100;
+      updateProgressBar(percent);
+      logCSVImport(`⏳ Progreso: ${percent.toFixed(1)}%`);
+    }
+  };
+
+  xhr.onload = function() {
+    hideProgressBar();
+    try {
+      const resp = JSON.parse(xhr.responseText);
+      if (xhr.status === 200 && resp.success) {
+        logCSVImport(`✅ Importación completada. Dispositivos configurados: ${resp.configured || 0}`);
+        if (resp.message) logCSVImport(`→ ${resp.message}`);
+        if (resp.skipped) logCSVImport(`Filas saltadas: ${resp.skipped}`);
+        if (resp.log) logCSVImport(`<pre style="overflow-x:auto">${resp.log}</pre>`);
+        loadDevicesPage(1);
+      } else {
+        logCSVImport(`❌ Error en el servidor: ${resp.message || 'Error desconocido'}`);
+      }
+    } catch {
+      logCSVImport(`❌ Error procesando respuesta del servidor.`);
+    }
+  };
+
+  xhr.onerror = function() {
+    hideProgressBar();
+    logCSVImport('❌ Error durante la solicitud al servidor.');
+  };
+
+  logCSVImport('⏳ Iniciando importación...');
+  xhr.send(formData);
+}
+
+function logCSVImport(message) {
+  const logDiv = document.getElementById('csvUploadLog');
+  if (!logDiv) return;
+  logDiv.innerHTML += message + '<br>';
+  logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+function clearCSVImportLog() {
+  const logDiv = document.getElementById('csvUploadLog');
+  if (logDiv) logDiv.innerHTML = '';
+}
+
+function updateProgressBar(value) {
+  const progressBar = document.getElementById('csvUploadProgress');
+  if (progressBar) {
+    progressBar.value = value;
+    progressBar.style.display = 'block';
+  }
+}
+
+function resetProgressBar() {
+  const progressBar = document.getElementById('csvUploadProgress');
+  if (progressBar) {
+    progressBar.value = 0;
+    progressBar.style.display = 'block';
+  }
+}
+
+function hideProgressBar() {
+  const progressBar = document.getElementById('csvUploadProgress');
+  if (progressBar) {
+    progressBar.style.display = 'none';
+  }
 }
 
 async function loadDevicesPage(page) {
@@ -342,8 +492,10 @@ function createDeviceCard(device) {
     const statusClass = device.configured ? 'configured' : 'unconfigured';
     const statusText = device.configured ? 'Configurado' : 'No configurado';
     const statusIcon = device.configured ? 'check-circle' : 'exclamation-triangle';
-    
-    // Redes WiFi
+    const primaryNetwork = device.wifi_networks.find(net => net.is_primary) || device.wifi_networks[0];
+    const mainSSID = primaryNetwork ? (primaryNetwork.ssid || 'Sin SSID') : 'Sin SSID';
+
+    // Construir HTML para las redes WiFi asociadas
     let networksHtml = '';
     if (device.wifi_networks && device.wifi_networks.length > 0) {
         networksHtml = device.wifi_networks.map(network => `
@@ -363,7 +515,7 @@ function createDeviceCard(device) {
             </div>
         `).join('');
     }
-    
+
     return `
         <div class="device-card ${statusClass}" data-serial="${device.serial_number}" style="opacity: 0; transform: translateY(20px); transition: all 0.5s ease;">
             <div class="device-header">
@@ -371,7 +523,7 @@ function createDeviceCard(device) {
                     <button class="device-title" onclick="showDeviceDetails('${device.serial_number}')">
                         ${device.serial_number}
                     </button>
-                    
+
                     ${device.contract_number ? `
                     <div class="device-contract has-contract" onclick="editContract('${device.serial_number}')">
                         <i class="fas fa-file-contract"></i>
@@ -385,27 +537,27 @@ function createDeviceCard(device) {
                         <i class="fas fa-edit edit-icon"></i>
                     </div>
                     `}
-                    
+
                     ${device.customer_name ? `
-                    <div class="device-customer has-customer">
+                    <div class="device-customer">
                         <i class="fas fa-user"></i>
                         <span>${device.customer_name}</span>
                     </div>
                     ` : ''}
                 </div>
-                
+
                 <div class="device-status ${statusClass}">
                     <i class="fas fa-${statusIcon}"></i>
                     <span>${statusText}</span>
                 </div>
             </div>
-            
+
             ${networksHtml ? `
             <div class="device-networks">
                 ${networksHtml}
             </div>
             ` : ''}
-            
+
             <div class="device-info">
                 <div class="device-detail">
                     <i class="fas fa-network-wired"></i>

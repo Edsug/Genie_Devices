@@ -1,6 +1,6 @@
 # app_fixed.py - APLICACIÓN FLASK CORREGIDA Y OPTIMIZADA
 
-from flask import Flask, jsonify, request, render_template, redirect, url_for, session, send_from_directory
+from flask import Flask, abort, jsonify, request, render_template, redirect, url_for, session, send_from_directory
 from flask_cors import CORS
 import requests
 import json
@@ -694,6 +694,27 @@ def get_devices():
     except Exception as e:
         logger.error(f"❌ Error obteniendo dispositivos: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+    
+@app.route('/api/device-info')
+@login_required
+def get_device_info():
+    device_id = request.args.get('device_id')
+    if not device_id:
+        return jsonify({'success': False, 'message': 'Device ID requerido'}), 400
+    device = DatabaseService.get_device_by_id(device_id)
+    if not device:
+        return jsonify({'success': False, 'message': 'Dispositivo no encontrado'}), 404
+    response = {
+        'serial_number': device.serial_number,
+        'mac_address': device.mac_address,
+        'ip_address': device.ip_address,
+        'product_class': device.product_class,
+        'software_version': device.software_version,
+        'hardware_version': device.hardware_version,
+        'last_inform': device.last_inform,
+    }
+    return jsonify({'success': True, **response})
+
 
 @app.route('/api/devices/refresh', methods=['POST'])
 @login_required
@@ -704,6 +725,137 @@ def refresh_devices():
     cache_timestamp = 0
     logger.info("🔄 Cache limpiado manualmente")
     return get_devices()
+
+@app.route('/api/device/update-ssid', methods=['POST'])
+@login_required
+@role_required(2)  # Solo NOC e Informática
+def update_ssid():
+    data = request.get_json()
+    serial_number = data.get('serial_number')
+    new_ssid = data.get('ssid')
+    band = data.get('band', '2.4GHz')  # Banda por defecto 2.4GHz
+
+    if not serial_number or not new_ssid:
+        return jsonify({'success': False, 'message': 'Datos incompletos'}), 400
+
+    # Validación básica de SSID
+    if not is_valid_ssid(new_ssid):
+        return jsonify({'success': False, 'message': 'SSID inválido'}), 400
+
+    try:
+        product_class = DatabaseService.get_product_class_by_serial(serial_number)
+        if product_class not in DEVICE_KNOWLEDGE_BASE:
+            return jsonify({'success': False, 'message': 'Producto no soportado'}), 400
+
+        band_key = band if band in DEVICE_KNOWLEDGE_BASE[product_class] else None
+        if not band_key:
+            # Para dispositivos IGD con claves primarias/alternas
+            if product_class == 'IGD':
+                # Ejemplo para IGD, puede extenderse conforme a base de conocimiento
+                if band == '2.4GHz':
+                    band_key = '2.4GHz_primary'
+                elif band == '5GHz':
+                    band_key = '5GHz_primary'
+            if not band_key or band_key not in DEVICE_KNOWLEDGE_BASE[product_class]:
+                return jsonify({'success': False, 'message': 'Banda no soportada para este dispositivo'}), 400
+
+        ssid_param = DEVICE_KNOWLEDGE_BASE[product_class][band_key]['ssid_param']
+
+        url = f"{GENIEACS_URL}/devices/{serial_number}/config/{quote(ssid_param)}"
+        auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
+        payload = {"value": new_ssid}
+
+        response = requests.put(url, json=payload, auth=auth, timeout=15)
+        response.raise_for_status()
+
+        # Actualizar base de datos local (solo SSID)
+        DatabaseService.update_device_ssid(serial_number, band_key, new_ssid)
+
+        # Limpiar cache
+        global device_cache, cache_timestamp
+        device_cache = {}
+        cache_timestamp = 0
+
+        return jsonify({'success': True, 'message': 'SSID actualizado correctamente'})
+
+    except Exception as e:
+        logger.error(f"Error actualizando SSID para {serial_number}: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+    
+
+@app.route('/api/device/update-password', methods=['POST'])
+@login_required
+@role_required(2)  # Solo NOC e Informática
+def update_password():
+    data = request.get_json()
+    serial_number = data.get('serial_number')
+    new_password = data.get('password')
+    band = data.get('band', '2.4GHz')  # Banda por defecto 2.4GHz
+
+    if not serial_number or not new_password:
+        return jsonify({'success': False, 'message': 'Datos incompletos'}), 400
+
+    # Validar contraseña segura
+    if not is_valid_password(new_password):
+        return jsonify({'success': False, 'message': 'Contraseña inválida (debe tener entre 8 y 63 caracteres)'}), 400
+
+    try:
+        product_class = DatabaseService.get_product_class_by_serial(serial_number)
+        if product_class not in DEVICE_KNOWLEDGE_BASE:
+            return jsonify({'success': False, 'message': 'Producto no soportado'}), 400
+
+        band_key = band if band in DEVICE_KNOWLEDGE_BASE[product_class] else None
+        if not band_key:
+            # Para dispositivos IGD gestionar bandas primarias
+            if product_class == 'IGD':
+                if band == '2.4GHz':
+                    band_key = '2.4GHz_primary'
+                elif band == '5GHz':
+                    band_key = '5GHz_primary'
+            if not band_key or band_key not in DEVICE_KNOWLEDGE_BASE[product_class]:
+                return jsonify({'success': False, 'message': 'Banda no soportada para este dispositivo'}), 400
+
+        password_param = DEVICE_KNOWLEDGE_BASE[product_class][band_key]['password_param']
+
+        url = f"{GENIEACS_URL}/devices/{serial_number}/config/{quote(password_param)}"
+        auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
+        payload = {"value": new_password}
+
+        response = requests.put(url, json=payload, auth=auth, timeout=15)
+        response.raise_for_status()
+
+        # Actualizar base de datos local para mantener sincronía
+        DatabaseService.update_device_password(serial_number, band_key, new_password)
+
+        # Limpiar cache
+        global device_cache, cache_timestamp
+        device_cache = {}
+        cache_timestamp = 0
+
+        return jsonify({'success': True, 'message': 'Contraseña actualizada correctamente'})
+
+    except Exception as e:
+        logger.error(f"Error actualizando contraseña para {serial_number}: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/device/lan-hosts/<serial_number>', methods=['GET'])
+@login_required
+@role_required(1)  # NOC, Informática, Call Center pueden ver
+def get_lan_hosts(serial_number):
+    try:
+        url = f"{GENIEACS_URL}/devices/{serial_number}/lan-hosts"
+        auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
+
+        response = requests.get(url, auth=auth, timeout=15)
+        response.raise_for_status()
+
+        lan_hosts = response.json()
+
+        return jsonify({'success': True, 'lan_hosts': lan_hosts})
+    except Exception as e:
+        logger.error(f"Error obteniendo hosts LAN para {serial_number}: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/csv/upload', methods=['POST'])
 @login_required

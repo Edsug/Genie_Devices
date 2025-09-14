@@ -93,7 +93,7 @@
                 </button>
                 <div class="header-title">
                     <h1><i class="fas fa-wifi"></i> GenieACS WiFi Manager</h1>
-                    <p>v2.0 Optimizado con Paginación</p>
+                    <p>v2.0</p>
                 </div>
             </div>
 
@@ -202,6 +202,8 @@
         Cargando...
     </div>
 
+    <div id="devicesGrid" class="devices-grid"></div>
+
     <!-- Sidebar -->
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
     <div class="sidebar" id="sidebar">
@@ -302,6 +304,32 @@
                             <small>Salir del sistema</small>
                         </div>
                     </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+        <!-- Modal para importar CSV -->
+    <div id="csvImportModal" class="modal-overlay hidden">
+        <div class="modal modal-large">
+            <div class="modal-header">
+                <h3><i class="fa fa-upload"></i> Importar archivo CSV</h3>
+                <button class="modal-close" onclick="closeCSVImportModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="dropArea" class="upload-area">
+                    <div class="upload-instructions">
+                        <i class="fa fa-file-csv"></i>
+                        <h5>Arrastra y suelta tu archivo aquí o haz clic para seleccionarlo</h5>
+                        <p>Solo archivos CSV, máximo 50MB.</p>
+                    </div>
+                        <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+                        <div id="selectedFileInfo" class="selected-file hidden"></div>
+                        <progress id="csvUploadProgress" value="0" max="100" style="width:100%;display:none"></progress>
+                </div>
+                    <div id="csvUploadLog" style="margin-top: 20px; max-height:200px; overflow:auto; background:#f6f6f6; font-size:12px; padding:10px; border-radius:6px;"></div>
+                <div class="form-actions" style="margin-top:20px">
+                    <button class="btn btn-secondary" onclick="closeCSVImportModal()">Cancelar</button>
                 </div>
             </div>
         </div>
