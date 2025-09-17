@@ -236,82 +236,83 @@
         <div class="modal modal-large">
             <div class="modal-header">
                 <h3><i class="fas fa-info-circle"></i> Información Técnica</h3>
-                <button class="modal-close" id="closeTechModal">
-                    <i class="fas fa-times"></i>
-                </button>
+                <button class="modal-close" id="closeTechModal">&times;</button>
             </div>
             <div class="modal-body">
-                <!-- Formulario para actualizar SSID y contraseñas -->
-                <form id="ssidPasswordForm">
-                    <div class="form-group">
-                        <label for="ssid24Input" class="form-label">Nuevo SSID 2.4GHz</label>
-                        <input type="text" id="ssid24Input" class="form-control" maxlength="32" placeholder="Dejar vacío para no cambiar">
-                    </div>
-                    <div class="form-group">
-                        <label for="password24Input" class="form-label">Nueva Contraseña 2.4GHz</label>
-                        <input type="password" id="password24Input" class="form-control" maxlength="63" placeholder="Dejar vacío para no cambiar">
-                    </div>
-                    <div class="form-group">
-                        <label for="ssid5Input" class="form-label">Nuevo SSID 5GHz</label>
-                        <input type="text" id="ssid5Input" class="form-control" maxlength="32" placeholder="Dejar vacío para no cambiar">
-                    </div>
-                    <div class="form-group">
-                        <label for="password5Input" class="form-label">Nueva Contraseña 5GHz</label>
-                        <input type="password" id="password5Input" class="form-control" maxlength="63" placeholder="Dejar vacío para no cambiar">
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-full-width">
-                        <i class="fas fa-save"></i> Actualizar SSID y Contraseñas
+                <form id="ssidPasswordForm" novalidate>
+                    <!-- Red WiFi 2.4GHz -->
+                    <fieldset class="form-fieldset">
+                        <legend>Red WiFi 2.4GHz</legend>
+                        <div class="form-group">
+                            <label for="ssid24Input">SSID 2.4GHz</label>
+                            <input type="text" id="ssid24Input" class="form-control">
+                        </div>
+                        <!-- Contraseña Actual 2.4GHz -->
+                        <div class="form-group">
+                            <label for="currentPassword24">Contraseña Actual</label>
+                            <div class="password-display-group">
+                                <input type="password" id="currentPassword24" class="form-control" readonly>
+                                <button type="button" class="password-toggle-btn" data-target="currentPassword24">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Nueva Contraseña 2.4GHz -->
+                        <div class="form-group">
+                            <label for="newPassword24">Nueva Contraseña (dejar en blanco para no cambiar)</label>
+                            <input type="password" id="newPassword24" class="form-control" placeholder="Mínimo 8 caracteres">
+                        </div>
+                    </fieldset>
+
+                    <!-- Red WiFi 5GHz -->
+                    <fieldset class="form-fieldset">
+                        <legend>Red WiFi 5GHz</legend>
+                        <div class="form-group">
+                            <label for="ssid5Input">SSID 5GHz</label>
+                            <input type="text" id="ssid5Input" class="form-control">
+                        </div>
+                        <!-- Contraseña Actual 5GHz -->
+                        <div class="form-group">
+                            <label for="currentPassword5">Contraseña Actual</label>
+                            <div class="password-display-group">
+                                <input type="password" id="currentPassword5" class="form-control" readonly>
+                                <button type="button" class="password-toggle-btn" data-target="currentPassword5">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Nueva Contraseña 5GHz -->
+                        <div class="form-group">
+                            <label for="newPassword5">Nueva Contraseña (dejar en blanco para no cambiar)</label>
+                            <input type="password" id="newPassword5" class="form-control" placeholder="Mínimo 8 caracteres">
+                        </div>
+                    </fieldset>
+
+                    <button type="submit" class="btn btn-primary btn--full-width" id="saveTechnicalInfoBtn">
+                        <i class="fas fa-save"></i> Actualizar Cambios
                     </button>
                 </form>
-                
-                <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--color-border);">
-                
-                <!-- Información técnica del dispositivo -->
-                <div class="device-technical-info">
+
+                <hr class="modal-divider">
+
+                <!-- Sección de Información del Dispositivo Mejorada -->
+                <div class="device-info-section professional-info">
                     <h4><i class="fas fa-microchip"></i> Información del Dispositivo</h4>
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <label>Número de Serie:</label>
-                            <span id="techSerial">-</span>
-                        </div>
-                        <div class="info-item">
-                            <label>MAC Address:</label>
-                            <span id="techMac">-</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Product Class:</label>
-                            <span id="techProductClass">-</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Software Version:</label>
-                            <span id="techSoftware">-</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Hardware Version:</label>
-                            <span id="techHardware">-</span>
-                        </div>
-                        <div class="info-item">
-                            <label>IP Address:</label>
-                            <span id="techIP">-</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Último Informe:</label>
-                            <span id="techLastInform">-</span>
-                        </div>
-                        <div class="info-item">
-                            <label>Etiquetas:</label>
-                            <span id="techTags">-</span>
-                        </div>
+                    <div class="info-grid-professional">
+                        <div class="info-item"><span class="info-label">Número de Serie</span><span id="techSerial" class="info-value"></span></div>
+                        <div class="info-item"><span class="info-label">MAC Address</span><span id="techMac" class="info-value"></span></div>
+                        <div class="info-item"><span class="info-label">Product Class</span><span id="techProductClass" class="info-value"></span></div>
+                        <div class="info-item"><span class="info-label">Software Ver.</span><span id="techSoftware" class="info-value"></span></div>
+                        <div class="info-item"><span class="info-label">Hardware Ver.</span><span id="techHardware" class="info-value"></span></div>
+                        <div class="info-item"><span class="info-label">IP Address</span><span id="techIP" class="info-value"></span></div>
+                        <div class="info-item"><span class="info-label">Último Informe</span><span id="techLastInform" class="info-value"></span></div>
+                        <div class="info-item"><span class="info-label">Etiquetas</span><span id="techTags" class="info-value"></span></div>
                     </div>
+                    <button class="btn btn-secondary btn--full-width" id="loadLanHostsBtn" style="margin-top: 15px;">
+                        <i class="fas fa-network-wired"></i> Cargar Hosts LAN
+                    </button>
+                    <div id="lanHostsContainer" class="lan-hosts-container"></div>
                 </div>
-                
-                <!-- Botón para cargar LAN hosts -->
-                <button class="btn btn-secondary btn-full-width" id="loadLanHostsBtn" style="margin-top: 1rem;">
-                    <i class="fas fa-network-wired"></i> Cargar Hosts LAN
-                </button>
-                
-                <!-- Container para mostrar LAN hosts -->
-                <div id="lanHostsContainer" style="margin-top: 1rem;"></div>
             </div>
         </div>
     </div>

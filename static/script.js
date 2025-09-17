@@ -231,22 +231,38 @@ function setupTechnicalModalListeners() {
     if (closeTechModal) {
         closeTechModal.addEventListener('click', closeTechnicalModal);
     }
+
+    // Dentro de la función setupTechnicalModalListeners
+    document.querySelectorAll('.password-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const targetId = this.dataset.target;
+            const targetInput = document.getElementById(targetId);
+            const icon = this.querySelector('i');
+
+            if (targetInput.type === 'password') {
+                targetInput.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                targetInput.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        });
+    });
 }
 
 // NUEVA FUNCIÓN: Abrir modal técnico
 async function openTechnicalModal(serialNumber) {
     try {
-        // Obtener información del dispositivo
         const response = await fetch(`/api/device-info/${encodeURIComponent(serialNumber)}`);
         const data = await response.json();
-        
-        if (!data.success) {
-            throw new Error(data.message || 'Error obteniendo información del dispositivo');
-        }
+        if (!data.success) throw new Error(data.message || 'Error obteniendo info');
         
         const device = data.device;
-        
-        // Llenar información técnica
+        const form = document.getElementById('ssidPasswordForm');
+
+        // Llenar info estática (sección mejorada)
         document.getElementById('techSerial').textContent = device.serial_number || 'N/A';
         document.getElementById('techMac').textContent = device.mac_address || device.mac || 'N/A';
         document.getElementById('techProductClass').textContent = device.product_class || 'N/A';
@@ -254,43 +270,37 @@ async function openTechnicalModal(serialNumber) {
         document.getElementById('techHardware').textContent = device.hardware_version || 'N/A';
         document.getElementById('techIP').textContent = device.ip_address || device.ip || 'N/A';
         document.getElementById('techLastInform').textContent = device.last_inform || 'N/A';
-        document.getElementById('techTags').textContent = device.tags ? 
-            (Array.isArray(device.tags) ? device.tags.join(', ') : device.tags) : 'Ninguna';
+        document.getElementById('techTags').textContent = device.tags ? (Array.isArray(device.tags) ? device.tags.join(', ') : device.tags) : 'Ninguna';
         
-        // Prellenar campos de SSID y contraseña si están disponibles
-        if (device.wifi_networks) {
-            const network24 = device.wifi_networks.find(n => n.band === '2.4GHz');
-            const network5 = device.wifi_networks.find(n => n.band === '5GHz');
-            
-            if (network24) {
-                document.getElementById('ssid24Input').value = network24.ssid || network24.ssid_current || '';
-                document.getElementById('password24Input').value = network24.password || '';
-            }
-            
-            if (network5) {
-                document.getElementById('ssid5Input').value = network5.ssid || network5.ssid_current || '';
-                document.getElementById('password5Input').value = network5.password || '';
-            }
+
+        let network24 = null, network5 = null;
+        if (device.wifi_networks && Array.isArray(device.wifi_networks)) {
+            network24 = device.wifi_networks.find(n => n.band === '2.4GHz');
+            network5 = device.wifi_networks.find(n => n.band === '5GHz');
         }
+
+        // Prellenar SSIDs y contraseñas actuales
+        document.getElementById('ssid24Input').value = network24 ? (network24.ssid || '') : '';
+        document.getElementById('currentPassword24').value = network24 ? (network24.password || 'No disponible') : 'No disponible';
         
-        // Guardar el serial number para uso posterior
-        document.getElementById('ssidPasswordForm').dataset.serialNumber = serialNumber;
+        document.getElementById('ssid5Input').value = network5 ? (network5.ssid || '') : '';
+        document.getElementById('currentPassword5').value = network5 ? (network5.password || 'No disponible') : 'No disponible';
         
-        // Limpiar container de LAN hosts
-        const lanHostsContainer = document.getElementById('lanHostsContainer');
-        if (lanHostsContainer) {
-            lanHostsContainer.innerHTML = '';
-        }
-        
-        // Mostrar modal
-        const modal = document.getElementById('technicalInfoModal');
-        if (modal) {
-            modal.classList.remove('hidden');
-        }
-        
+        // Limpiar campos de nueva contraseña
+        document.getElementById('newPassword24').value = '';
+        document.getElementById('newPassword5').value = '';
+
+        // Guardar valores originales
+        form.dataset.originalSsid24 = network24 ? (network24.ssid || '') : '';
+        form.dataset.originalSsid5 = network5 ? (network5.ssid || '') : '';
+        form.dataset.serialNumber = serialNumber;
+
+        document.getElementById('lanHostsContainer').innerHTML = '';
+        document.getElementById('technicalInfoModal').classList.remove('hidden');
+
     } catch (error) {
         console.error('Error abriendo modal técnico:', error);
-        showNotification('Error cargando información del dispositivo: ' + error.message, 'error');
+        showNotification(`Error cargando información: ${error.message}`, 'error');
     }
 }
 
@@ -318,120 +328,44 @@ function closeTechnicalModal() {
 // NUEVA FUNCIÓN: Manejar submit del formulario técnico
 async function handleTechnicalFormSubmit(e) {
     e.preventDefault();
-    
     const form = e.target;
     const serialNumber = form.dataset.serialNumber;
-    
-    if (!serialNumber) {
-        showNotification('Error: No se encontró el número de serie del dispositivo', 'error');
+    const saveBtn = document.getElementById('saveTechnicalInfoBtn');
+
+    const newValues = {
+        ssid24: document.getElementById('ssid24Input').value,
+        password24: document.getElementById('newPassword24').value, // <-- Cambio clave
+        ssid5: document.getElementById('ssid5Input').value,
+        password5: document.getElementById('newPassword5').value, // <-- Cambio clave
+    };
+
+    const originalValues = {
+        ssid24: form.dataset.originalSsid24,
+        ssid5: form.dataset.originalSsid5,
+    };
+
+    const tasks = [];
+    if (newValues.ssid24 !== originalValues.ssid24) {
+        tasks.push({ endpoint: '/api/device/update-ssid', payload: { serial_number: serialNumber, ssid: newValues.ssid24, band: '2.4GHz' }, name: 'SSID 2.4GHz' });
+    }
+    if (newValues.password24) { // <-- Lógica simplificada
+        tasks.push({ endpoint: '/api/device/update-password', payload: { serial_number: serialNumber, password: newValues.password24, band: '2.4GHz' }, name: 'Contraseña 2.4GHz' });
+    }
+    if (newValues.ssid5 !== originalValues.ssid5) {
+        tasks.push({ endpoint: '/api/device/update-ssid', payload: { serial_number: serialNumber, ssid: newValues.ssid5, band: '5GHz' }, name: 'SSID 5GHz' });
+    }
+    if (newValues.password5) { // <-- Lógica simplificada
+        tasks.push({ endpoint: '/api/device/update-password', payload: { serial_number: serialNumber, password: newValues.password5, band: '5GHz' }, name: 'Contraseña 5GHz' });
+    }
+
+    if (tasks.length === 0) {
+        showNotification('No hay cambios para guardar.', 'info');
         return;
     }
-    
-    const ssid24 = document.getElementById('ssid24Input').value.trim();
-    const password24 = document.getElementById('password24Input').value.trim();
-    const ssid5 = document.getElementById('ssid5Input').value.trim();
-    const password5 = document.getElementById('password5Input').value.trim();
-    
-    // Validaciones básicas
-    if (!ssid24 && !password24 && !ssid5 && !password5) {
-        showNotification('Debe proporcionar al menos un SSID o contraseña para actualizar', 'warning');
-        return;
-    }
-    
-    try {
-        const updates = [];
-        
-        // Actualizar SSID 2.4GHz si se proporcionó
-        if (ssid24) {
-            const ssidResponse = await fetch('/api/device/update-ssid', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    serial_number: serialNumber,
-                    ssid: ssid24,
-                    band: '2.4GHz'
-                })
-            });
-            
-            const ssidData = await ssidResponse.json();
-            if (ssidData.success) {
-                updates.push('SSID 2.4GHz');
-            } else {
-                throw new Error(`Error SSID 2.4GHz: ${ssidData.message}`);
-            }
-        }
-        
-        // Actualizar contraseña 2.4GHz si se proporcionó
-        if (password24) {
-            const pwdResponse = await fetch('/api/device/update-password', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    serial_number: serialNumber,
-                    password: password24,
-                    band: '2.4GHz'
-                })
-            });
-            
-            const pwdData = await pwdResponse.json();
-            if (pwdData.success) {
-                updates.push('Contraseña 2.4GHz');
-            } else {
-                throw new Error(`Error contraseña 2.4GHz: ${pwdData.message}`);
-            }
-        }
-        
-        // Actualizar SSID 5GHz si se proporcionó
-        if (ssid5) {
-            const ssidResponse = await fetch('/api/device/update-ssid', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    serial_number: serialNumber,
-                    ssid: ssid5,
-                    band: '5GHz'
-                })
-            });
-            
-            const ssidData = await ssidResponse.json();
-            if (ssidData.success) {
-                updates.push('SSID 5GHz');
-            } else {
-                throw new Error(`Error SSID 5GHz: ${ssidData.message}`);
-            }
-        }
-        
-        // Actualizar contraseña 5GHz si se proporcionó
-        if (password5) {
-            const pwdResponse = await fetch('/api/device/update-password', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    serial_number: serialNumber,
-                    password: password5,
-                    band: '5GHz'
-                })
-            });
-            
-            const pwdData = await pwdResponse.json();
-            if (pwdData.success) {
-                updates.push('Contraseña 5GHz');
-            } else {
-                throw new Error(`Error contraseña 5GHz: ${pwdData.message}`);
-            }
-        }
-        
-        if (updates.length > 0) {
-            showNotification(`Actualizado correctamente: ${updates.join(', ')}`, 'success');
-            // Recargar dispositivos para mostrar cambios
-            await loadDevicesPage(currentPage);
-            closeTechnicalModal();
-        }
-        
-    } catch (error) {
-        console.error('Error actualizando dispositivo:', error);
-        showNotification('Error actualizando dispositivo: ' + error.message, 'error');
-    }
+
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Actualizando...';
+
 }
 
 // NUEVA FUNCIÓN: Cargar LAN hosts
