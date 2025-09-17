@@ -2737,3 +2737,334 @@ h6 { font-size: var(--font-size-md); }
     justify-content: center;
   }
 }
+
+/* Estilos específicos para los nuevos componentes */
+
+/* Paginación */
+.pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: var(--space-24);
+    padding: var(--space-16);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+}
+
+.pagination-info {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.pagination-controls {
+    display: flex;
+    gap: var(--space-8);
+}
+
+/* Estados de dispositivos mejorados */
+.device-card .device-serial-small {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    margin-top: var(--space-4);
+    font-family: var(--font-family-mono);
+}
+
+/* Botones de edición de red */
+.edit-network-btn {
+    background: var(--color-primary);
+    color: var(--color-btn-primary-text);
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: var(--space-4) var(--space-8);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    transition: all var(--duration-fast) var(--ease-standard);
+    margin-left: var(--space-4);
+}
+
+.edit-network-btn:hover {
+    background: var(--color-primary-hover);
+    transform: translateY(-1px);
+}
+
+/* Botones de acción de dispositivo */
+.device-actions {
+    margin-top: var(--space-12);
+    display: flex;
+    gap: var(--space-8);
+}
+
+.action-btn {
+    background: var(--color-secondary);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-4) var(--space-8);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    transition: all var(--duration-fast) var(--ease-standard);
+}
+
+.action-btn:hover {
+    background: var(--color-secondary-hover);
+    border-color: var(--color-primary);
+}
+
+.history-btn {
+    background: var(--color-info);
+    color: white;
+    border-color: var(--color-info);
+}
+
+.history-btn:hover {
+    background: var(--color-slate-500);
+}
+
+/* Información técnica del dispositivo */
+.device-technical-info {
+    display: grid;
+    gap: var(--space-16);
+}
+
+/* LAN Hosts */
+.lan-hosts-section h4 {
+    margin-bottom: var(--space-12);
+}
+
+.lan-hosts-list {
+    display: grid;
+    gap: var(--space-8);
+}
+
+.lan-host-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-12);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-base);
+    transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.lan-host-item.active {
+    border-color: var(--color-success);
+    background: rgba(var(--color-success-rgb), 0.05);
+}
+
+.lan-host-item.inactive {
+    border-color: var(--color-warning);
+    background: rgba(var(--color-warning-rgb), 0.05);
+}
+
+.host-info {
+    flex: 1;
+}
+
+.host-details {
+    display: block;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    margin-top: var(--space-2);
+    font-family: var(--font-family-mono);
+}
+
+.host-status {
+    padding: var(--space-2) var(--space-8);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+}
+
+.host-status.online {
+    background: rgba(var(--color-success-rgb), var(--status-bg-opacity));
+    color: var(--color-success);
+}
+
+.host-status.offline {
+    background: rgba(var(--color-warning-rgb), var(--status-bg-opacity));
+    color: var(--color-warning);
+}
+
+/* Historial de cambios */
+.history-list {
+    max-height: 400px;
+    overflow-y: auto;
+    display: grid;
+    gap: var(--space-12);
+}
+
+.history-item {
+    background: var(--color-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-base);
+    padding: var(--space-16);
+    border-left: 4px solid var(--color-primary);
+}
+
+.change-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-8);
+}
+
+.change-header strong {
+    color: var(--color-text);
+    font-weight: var(--font-weight-semibold);
+}
+
+.change-date {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    font-family: var(--font-family-mono);
+}
+
+.change-details {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    line-height: var(--line-height-normal);
+}
+
+.change-details p {
+    margin: var(--space-4) 0;
+}
+
+.change-details strong {
+    color: var(--color-text);
+    font-weight: var(--font-weight-medium);
+}
+
+/* Mensajes de estado */
+.no-history,
+.no-hosts,
+.error-message,
+.loading-text {
+    text-align: center;
+    color: var(--color-text-secondary);
+    font-style: italic;
+    padding: var(--space-16);
+}
+
+/* Animaciones adicionales */
+.device-card.slide-up {
+    animation: slideUpDevice 0.5s ease forwards;
+}
+
+@keyframes slideUpDevice {
+    from {
+        opacity: 0;
+        transform: translateY(var(--space-20));
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Mejoras responsive específicas */
+@media (max-width: 640px) {
+    .header-content {
+        flex-direction: column;
+        gap: var(--space-12);
+        align-items: stretch;
+    }
+    
+    .header-center {
+        order: 2;
+    }
+    
+    .header-right {
+        order: 3;
+        flex-direction: column;
+        gap: var(--space-8);
+    }
+    
+    .filter-tabs {
+        justify-content: center;
+    }
+    
+    .device-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .device-status {
+        align-self: flex-end;
+        min-width: auto;
+    }
+    
+    .network-header {
+        flex-wrap: wrap;
+        gap: var(--space-8);
+    }
+    
+    .pagination {
+        flex-direction: column;
+        gap: var(--space-12);
+    }
+    
+    .pagination-controls {
+        justify-content: center;
+    }
+}
+
+/* Estilos para modal técnico */
+.info-grid {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.info-item:last-child {
+    border-bottom: none;
+}
+
+.info-item label {
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+}
+
+.info-item span {
+    color: var(--color-text);
+    text-align: right;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-sm);
+}
+
+.lan-hosts-list {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-base);
+}
+
+.lan-host-item {
+    padding: 1rem;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.lan-host-item:last-child {
+    border-bottom: none;
+}
+
+.lan-host-item div {
+    margin-bottom: 0.25rem;
+}
+
+.lan-host-item div:last-child {
+    margin-bottom: 0;
+}

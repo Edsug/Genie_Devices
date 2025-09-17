@@ -1,87 +1,11 @@
 <!DOCTYPE html>
-<html lang="es" data-color-scheme="system">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GenieACS WiFi Manager</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        /* Estilos específicos para paginación */
-        .pagination-container {
-            margin-top: 2rem;
-            padding: 1rem 0;
-            border-top: 1px solid var(--color-border);
-        }
-        
-        .pagination-info {
-            text-align: center;
-            color: var(--color-text-secondary);
-            font-size: var(--font-size-sm);
-            margin-bottom: 1rem;
-        }
-        
-        .pagination-buttons {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-        
-        .pagination-buttons .btn {
-            min-width: 44px;
-            padding: 0.5rem 1rem;
-        }
-        
-        .pagination-dots {
-            padding: 0.5rem;
-            color: var(--color-text-secondary);
-        }
-        
-        .filter-info {
-            text-align: center;
-            color: var(--color-primary);
-            font-size: var(--font-size-sm);
-            font-weight: var(--font-weight-medium);
-            margin-bottom: 1rem;
-            padding: 0.5rem 1rem;
-            background: rgba(var(--color-primary-rgb, 33, 128, 141), 0.1);
-            border-radius: var(--radius-base);
-        }
-        
-        .cache-info {
-            position: fixed;
-            bottom: 1rem;
-            left: 1rem;
-            background: var(--color-surface);
-            border: 1px solid var(--color-border);
-            border-radius: var(--radius-base);
-            padding: 0.5rem 1rem;
-            font-size: var(--font-size-xs);
-            color: var(--color-text-secondary);
-            z-index: 100;
-            opacity: 0.7;
-        }
-        
-        @media (max-width: 768px) {
-            .pagination-buttons {
-                gap: 0.25rem;
-            }
-            
-            .pagination-buttons .btn {
-                min-width: 36px;
-                padding: 0.4rem 0.8rem;
-                font-size: var(--font-size-sm);
-            }
-            
-            .cache-info {
-                position: relative;
-                margin-top: 1rem;
-                text-align: center;
-            }
-        }
-    </style>
 </head>
 <body>
     <!-- Header -->
@@ -93,48 +17,41 @@
                 </button>
                 <div class="header-title">
                     <h1><i class="fas fa-wifi"></i> GenieACS WiFi Manager</h1>
-                    <p>v2.0</p>
+                    <p>Sistema de gestión de redes WiFi</p>
                 </div>
             </div>
-
+            
             <div class="header-center">
                 <div class="search-container">
                     <div class="search-input-wrapper">
                         <i class="fas fa-search search-icon"></i>
-                        <input type="text" 
-                               class="search-input" 
-                               id="searchInput" 
-                               placeholder="Buscar por serial, IP, modelo o contrato...">
+                        <input type="text" class="search-input" id="searchInput" 
+                               placeholder="Buscar dispositivos (serial, IP, contrato, cliente...)">
                         <button class="search-clear hidden" id="searchClear">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
                 </div>
             </div>
-
+            
             <div class="header-right">
                 <div class="filter-tabs">
                     <button class="filter-tab active" data-filter="all">
-                        <i class="fas fa-list"></i>
-                        <span>Todos</span>
-                        <span class="tab-count" id="countAll">0</span>
+                        Todos <span class="tab-count">0</span>
                     </button>
                     <button class="filter-tab" data-filter="configured">
-                        <i class="fas fa-check-circle"></i>
-                        <span>Configurados</span>
-                        <span class="tab-count" id="countConfigured">0</span>
+                        Configurados <span class="tab-count">0</span>
                     </button>
                     <button class="filter-tab" data-filter="unconfigured">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <span>No Configurados</span>
-                        <span class="tab-count" id="countUnconfigured">0</span>
+                        Sin configurar <span class="tab-count">0</span>
                     </button>
                 </div>
-
-                <button class="btn btn-secondary btn-sm" id="refreshBtn">
+                
+                <button class="btn btn-primary btn-sm" id="refreshBtn">
                     <i class="fas fa-sync-alt"></i>
+                    Actualizar
                 </button>
-
+                
                 <div class="user-info" id="currentUser">
                     <i class="fas fa-user"></i>
                     Cargando...
@@ -143,81 +60,47 @@
         </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="main-container">
-        <!-- Filter Info -->
-        <div class="filter-info hidden" id="filterInfo"></div>
-
-        <!-- Loading State -->
-        <div class="loading-state" id="loadingState">
-            <div class="loading-spinner">
-                <i class="fas fa-spinner fa-spin"></i>
-            </div>
-            <div class="loading-text">
-                <h3>Cargando dispositivos desde GenieACS...</h3>
-                <p>Esto puede tomar unos momentos</p>
-            </div>
-        </div>
-
-        <!-- Error State -->
-        <div class="error-state hidden" id="errorState">
-            <div class="error-icon">
-                <i class="fas fa-exclamation-triangle"></i>
-            </div>
-            <div class="error-text">
-                <h3>Error al cargar dispositivos</h3>
-                <p>Intenta con otros términos de búsqueda o verifica los filtros</p>
-                <p>Revisa que el servidor GenieACS esté ejecutándose correctamente</p>
-                <button class="btn btn-primary" id="retryBtn" style="margin-top: 1rem;">
-                    <i class="fas fa-retry"></i>
-                    Reintentar
-                </button>
-            </div>
-        </div>
-
-        <!-- Empty State -->
-        <div class="empty-state hidden" id="emptyState">
-            <div class="empty-icon">
-                <i class="fas fa-search"></i>
-            </div>
-            <div class="empty-text">
-                <h3>No se encontraron dispositivos</h3>
-                <p>No hay dispositivos que coincidan con los filtros actuales</p>
-            </div>
-        </div>
-
-        <!-- Devices Grid -->
-        <div class="devices-grid hidden" id="devicesGrid">
-            <!-- Los dispositivos se cargan dinámicamente aquí -->
-        </div>
-
-        <!-- Pagination Controls -->
-        <div class="pagination-container hidden" id="paginationControls">
-            <!-- Los controles de paginación se cargan dinámicamente aquí -->
-        </div>
-    </main>
-
-    <!-- Cache Info -->
-    <div class="cache-info" id="cacheInfo">
-        Cargando...
-    </div>
-
-    <div id="devicesGrid" class="devices-grid"></div>
-
     <!-- Sidebar -->
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-    <div class="sidebar" id="sidebar">
+    <nav class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <h3><i class="fas fa-cog"></i> Configuración</h3>
+            <h3><i class="fas fa-cog"></i> Panel de Control</h3>
             <button class="sidebar-close" id="sidebarClose">
                 <i class="fas fa-times"></i>
             </button>
         </div>
-
+        
         <div class="sidebar-content">
-            <!-- Tema -->
             <div class="sidebar-section">
-                <h4><i class="fas fa-palette"></i> Apariencia</h4>
+                <h4><i class="fas fa-tools"></i> Herramientas</h4>
+                <div class="sidebar-menu">
+                    <button class="sidebar-menu-item" id="csvUploadBtn">
+                        <i class="fas fa-file-csv"></i>
+                        <div>
+                            <span>Importar CSV</span>
+                            <small>Cargar datos masivos de dispositivos</small>
+                        </div>
+                    </button>
+                    
+                    <button class="sidebar-menu-item" id="showHistoryBtn">
+                        <i class="fas fa-history"></i>
+                        <div>
+                            <span>Historial de cambios</span>
+                            <small>Ver modificaciones recientes</small>
+                        </div>
+                    </button>
+                    
+                    <button class="sidebar-menu-item" id="showImportHistoryBtn">
+                        <i class="fas fa-file-import"></i>
+                        <div>
+                            <span>Historial de importaciones</span>
+                            <small>Ver importaciones de CSV</small>
+                        </div>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="sidebar-section">
+                <h4><i class="fas fa-palette"></i> Tema</h4>
                 <div class="theme-selector">
                     <div class="theme-option active" data-theme="system">
                         <i class="fas fa-desktop"></i>
@@ -233,109 +116,207 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Acciones -->
+            
             <div class="sidebar-section">
-                <h4><i class="fas fa-tools"></i> Herramientas</h4>
-                <div class="sidebar-menu">
-                    <a href="#" class="sidebar-menu-item" id="csvUploadBtn">
-                        <i class="fas fa-upload"></i>
-                        <div>
-                            <span>Subir CSV</span>
-                            <small>Importar datos masivos</small>
-                        </div>
-                    </a>
-                    
-                    <a href="#" class="sidebar-menu-item" id="showHistoryBtn">
-                        <i class="fas fa-history"></i>
-                        <div>
-                            <span>Historial</span>
-                            <small>Ver cambios recientes</small>
-                        </div>
-                    </a>
-                    
-                    <a href="#" class="sidebar-menu-item" id="showImportHistoryBtn">
-                        <i class="fas fa-file-import"></i>
-                        <div>
-                            <span>Importaciones</span>
-                            <small>Historial de CSV</small>
-                        </div>
-                    </a>
-                </div>
-            </div>
-
-            <!-- Información -->
-            <div class="sidebar-section">
-                <h4><i class="fas fa-info-circle"></i> Sistema</h4>
-                <div class="sidebar-menu">
-                    <div class="sidebar-menu-item">
-                        <i class="fas fa-database"></i>
-                        <div>
-                            <span>Base de Datos</span>
-                            <small>MySQL + XAMPP</small>
-                        </div>
-                    </div>
-                    
-                    <div class="sidebar-menu-item">
-                        <i class="fas fa-server"></i>
-                        <div>
-                            <span>GenieACS</span>
-                            <small>Gestión de dispositivos</small>
-                        </div>
-                    </div>
-                    
-                    <div class="sidebar-menu-item">
-                        <i class="fas fa-chart-line"></i>
-                        <div>
-                            <span>Paginación</span>
-                            <small>20 dispositivos por página</small>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Logout -->
-            <div class="sidebar-section">
+                <h4><i class="fas fa-user"></i> Cuenta</h4>
                 <div class="sidebar-menu">
                     <a href="/logout" class="sidebar-menu-item logout-btn">
                         <i class="fas fa-sign-out-alt"></i>
                         <div>
-                            <span>Cerrar Sesión</span>
+                            <span>Cerrar sesión</span>
                             <small>Salir del sistema</small>
                         </div>
                     </a>
                 </div>
             </div>
         </div>
-    </div>
+    </nav>
+    
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-        <!-- Modal para importar CSV -->
-    <div id="csvImportModal" class="modal-overlay hidden">
-        <div class="modal modal-large">
+    <!-- Main Content -->
+    <main class="main-container">
+        <div id="devicesGrid" class="devices-grid"></div>
+        <!-- Loading State -->
+        <div class="loading-state" id="loadingIndicator">
+            <div class="loading-spinner">
+                <i class="fas fa-spinner"></i>
+            </div>
+            <div class="loading-text">
+                <h3>Cargando dispositivos desde GenieACS...</h3>
+                <p>Esto puede tomar unos momentos</p>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div class="error-state hidden" id="errorState">
+            <div class="error-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <div class="error-text">
+                <h3>Error al cargar dispositivos</h3>
+                <p class="error-details">Revisa que el servidor GenieACS esté ejecutándose correctamente</p>
+                <button class="btn btn-primary" id="retryBtn">
+                    <i class="fas fa-redo"></i>
+                    Reintentar
+                </button>
+            </div>
+        </div>
+
+        <!-- Empty State -->
+        <div class="empty-state hidden" id="emptyState">
+            <div class="empty-icon">
+                <i class="fas fa-search"></i>
+            </div>
+            <div class="empty-text">
+                <h3>No hay dispositivos</h3>
+                <p>No hay dispositivos que coincidan con los filtros actuales</p>
+            </div>
+        </div>
+
+        <!-- Devices Grid -->
+        <div class="devices-grid" id="devicesContainer">
+            <!-- Las tarjetas de dispositivos se generan dinámicamente -->
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination hidden" id="paginationContainer">
+            <div class="pagination-info" id="pageInfo">
+                Página 1 de 1
+            </div>
+            <div class="pagination-controls">
+                <button class="btn btn-secondary btn-sm" id="prevPageBtn" disabled>
+                    <i class="fas fa-chevron-left"></i> Anterior
+                </button>
+                <button class="btn btn-secondary btn-sm" id="nextPageBtn" disabled>
+                    Siguiente <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal CSV Import -->
+    <div class="modal-overlay hidden" id="csvImportModal">
+        <div class="modal">
             <div class="modal-header">
-                <h3><i class="fa fa-upload"></i> Importar archivo CSV</h3>
-                <button class="modal-close" onclick="closeCSVImportModal()">&times;</button>
+                <h3><i class="fas fa-file-csv"></i> Importar CSV</h3>
+                <button class="modal-close" onclick="closeCSVImportModal()">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="modal-body">
-                <div id="dropArea" class="upload-area">
+                <div class="upload-area" id="dropArea">
                     <div class="upload-instructions">
-                        <i class="fa fa-file-csv"></i>
-                        <h5>Arrastra y suelta tu archivo aquí o haz clic para seleccionarlo</h5>
-                        <p>Solo archivos CSV, máximo 50MB.</p>
+                        <i class="fas fa-file-csv"></i>
+                        <h5>Importar datos de dispositivos</h5>
+                        <p><strong>Arrastra tu archivo CSV aquí</strong> o haz clic para seleccionar</p>
+                        <p class="upload-note">Archivos soportados: .csv (máximo 50MB)</p>
                     </div>
-                        <input type="file" id="csvFileInput" accept=".csv" style="display:none">
-                        <div id="selectedFileInfo" class="selected-file hidden"></div>
-                        <progress id="csvUploadProgress" value="0" max="100" style="width:100%;display:none"></progress>
+                    <div class="upload-controls">
+                        <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+                    </div>
                 </div>
-                    <div id="csvUploadLog" style="margin-top: 20px; max-height:200px; overflow:auto; background:#f6f6f6; font-size:12px; padding:10px; border-radius:6px;"></div>
-                <div class="form-actions" style="margin-top:20px">
-                    <button class="btn btn-secondary" onclick="closeCSVImportModal()">Cancelar</button>
+                
+                <div class="selected-file hidden" id="selectedFileInfo">
+                    <div class="file-info">
+                        <i class="fas fa-file-check"></i>
+                        <span id="fileDetails">Archivo seleccionado</span>
+                    </div>
                 </div>
+                
+                <progress id="csvUploadProgress" class="hidden" max="100" value="0"></progress>
+                
+                <div id="csvUploadLog" class="hidden"></div>
             </div>
         </div>
     </div>
 
-    <!-- JavaScript -->
+    <!-- Modal para información técnica -->
+    <div class="modal-overlay hidden" id="technicalInfoModal">
+        <div class="modal modal-large">
+            <div class="modal-header">
+                <h3><i class="fas fa-info-circle"></i> Información Técnica</h3>
+                <button class="modal-close" id="closeTechModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Formulario para actualizar SSID y contraseñas -->
+                <form id="ssidPasswordForm">
+                    <div class="form-group">
+                        <label for="ssid24Input" class="form-label">Nuevo SSID 2.4GHz</label>
+                        <input type="text" id="ssid24Input" class="form-control" maxlength="32" placeholder="Dejar vacío para no cambiar">
+                    </div>
+                    <div class="form-group">
+                        <label for="password24Input" class="form-label">Nueva Contraseña 2.4GHz</label>
+                        <input type="password" id="password24Input" class="form-control" maxlength="63" placeholder="Dejar vacío para no cambiar">
+                    </div>
+                    <div class="form-group">
+                        <label for="ssid5Input" class="form-label">Nuevo SSID 5GHz</label>
+                        <input type="text" id="ssid5Input" class="form-control" maxlength="32" placeholder="Dejar vacío para no cambiar">
+                    </div>
+                    <div class="form-group">
+                        <label for="password5Input" class="form-label">Nueva Contraseña 5GHz</label>
+                        <input type="password" id="password5Input" class="form-control" maxlength="63" placeholder="Dejar vacío para no cambiar">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full-width">
+                        <i class="fas fa-save"></i> Actualizar SSID y Contraseñas
+                    </button>
+                </form>
+                
+                <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--color-border);">
+                
+                <!-- Información técnica del dispositivo -->
+                <div class="device-technical-info">
+                    <h4><i class="fas fa-microchip"></i> Información del Dispositivo</h4>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>Número de Serie:</label>
+                            <span id="techSerial">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>MAC Address:</label>
+                            <span id="techMac">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Product Class:</label>
+                            <span id="techProductClass">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Software Version:</label>
+                            <span id="techSoftware">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Hardware Version:</label>
+                            <span id="techHardware">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>IP Address:</label>
+                            <span id="techIP">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Último Informe:</label>
+                            <span id="techLastInform">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Etiquetas:</label>
+                            <span id="techTags">-</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Botón para cargar LAN hosts -->
+                <button class="btn btn-secondary btn-full-width" id="loadLanHostsBtn" style="margin-top: 1rem;">
+                    <i class="fas fa-network-wired"></i> Cargar Hosts LAN
+                </button>
+                
+                <!-- Container para mostrar LAN hosts -->
+                <div id="lanHostsContainer" style="margin-top: 1rem;"></div>
+            </div>
+        </div>
+    </div>
+
+
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

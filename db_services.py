@@ -465,3 +465,207 @@ class DatabaseService:
             db.session.rollback()
             logger.error(f"❌ Error en limpieza: {e}")
             return 0
+        
+    @staticmethod
+    def get_device_change_history(serial_number, limit=50):
+        """Obtener historial de cambios de un dispositivo específico"""
+        try:
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            if not device:
+                return []
+                
+            history = db.session.query(ChangeHistory)\
+                .join(User, ChangeHistory.user_id == User.id, isouter=True)\
+                .filter(ChangeHistory.device_id == device.id)\
+                .add_columns(User.username)\
+                .order_by(ChangeHistory.timestamp.desc())\
+                .limit(limit).all()
+                
+            result = []
+            for record in history:
+                change = record[0]
+                username = record[1] if len(record) > 1 else 'Sistema'
+                
+                result.append({
+                    'id': change.id,
+                    'change_type': change.change_type,
+                    'field_name': change.field_name,
+                    'old_value': change.old_value,
+                    'new_value': change.new_value,
+                    'change_date': change.timestamp.isoformat() if change.timestamp else None,
+                    'username': username or 'Sistema',
+                    'change_reason': getattr(change, 'change_reason', None)
+                })
+                
+            return result
+            
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo historial del dispositivo {serial_number}: {e}")
+            return []
+
+    @staticmethod
+    def record_change_history(change_data):
+        """Registrar un cambio en el historial"""
+        try:
+            device = Device.query.filter_by(serial_number=change_data['device_serial']).first()
+            if not device:
+                logger.warning(f"Dispositivo no encontrado: {change_data['device_serial']}")
+                return False
+                
+            change = ChangeHistory(
+                device_id=device.id,
+                change_type=change_data['change_type'],
+                field_name=change_data.get('field_name'),
+                old_value=change_data.get('old_value', ''),
+                new_value=change_data.get('new_value', ''),
+                user_id=change_data.get('user_id'),
+                change_reason=change_data.get('change_reason')
+            )
+            
+            db.session.add(change)
+            db.session.commit()
+            
+            logger.info(f"✅ Cambio registrado: {change_data['change_type']} en {change_data['device_serial']}")
+            return True
+            
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"❌ Error registrando cambio: {e}")
+            return False
+
+    @staticmethod
+    def get_current_ssid(serial_number, band):
+        """Obtener SSID actual de un dispositivo"""
+        try:
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            if not device:
+                return None
+                
+            network = WifiNetwork.query.filter_by(
+                device_id=device.id,
+                band=band
+            ).first()
+            
+            return network.effective_ssid if network else None
+            
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo SSID: {e}")
+            return None
+
+    @staticmethod
+    def get_current_password(serial_number, band):
+        """Obtener contraseña actual de un dispositivo"""
+        try:
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            if not device:
+                return None
+                
+            network = WifiNetwork.query.filter_by(
+                device_id=device.id,
+                band=band
+            ).first()
+            
+            return network.password if network else None
+            
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo contraseña: {e}")
+            return None
+
+    @staticmethod
+    def get_product_class_by_serial(serial_number):
+        """Obtener product class de un dispositivo por serial"""
+        try:
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            return device.product_class if device else None
+            
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo product class: {e}")
+            return None
+
+    @staticmethod
+    def update_device_ssid(serial_number, band_key, new_ssid):
+        """Actualizar SSID de un dispositivo"""
+        try:
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            if not device:
+                logger.warning(f"Dispositivo no encontrado: {serial_number}")
+                return False
+                
+            # Convertir band_key a band estándar
+            band = '2.4GHz' if '2.4GHz' in band_key else '5GHz'
+            
+            network = WifiNetwork.query.filter_by(
+                device_id=device.id,
+                band=band
+            ).first()
+            
+            if network:
+                network.ssid_configured = new_ssid
+                network.updated_at = datetime.utcnow()
+            else:
+                # Crear nueva red si no existe
+                network = WifiNetwork(
+                    device_id=device.id,
+                    band=band,
+                    ssid_configured=new_ssid,
+                    is_primary=(band == '5GHz')
+                )
+                db.session.add(network)
+            
+            db.session.commit()
+            logger.info(f"✅ SSID actualizado: {serial_number} {band} -> {new_ssid}")
+            return True
+            
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"❌ Error actualizando SSID: {e}")
+            return False
+
+    @staticmethod
+    def update_device_password(serial_number, band_key, new_password):
+        """Actualizar contraseña de un dispositivo"""
+        try:
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            if not device:
+                logger.warning(f"Dispositivo no encontrado: {serial_number}")
+                return False
+                
+            # Convertir band_key a band estándar
+            band = '2.4GHz' if '2.4GHz' in band_key else '5GHz'
+            
+            network = WifiNetwork.query.filter_by(
+                device_id=device.id,
+                band=band
+            ).first()
+            
+            if network:
+                network.password = new_password
+                network.updated_at = datetime.utcnow()
+            else:
+                # Crear nueva red si no existe
+                network = WifiNetwork(
+                    device_id=device.id,
+                    band=band,
+                    password=new_password,
+                    is_primary=(band == '5GHz')
+                )
+                db.session.add(network)
+            
+            db.session.commit()
+            logger.info(f"✅ Contraseña actualizada: {serial_number} {band}")
+            return True
+            
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"❌ Error actualizando contraseña: {e}")
+            return False
+
+    @staticmethod
+    def get_device_by_id(device_id):
+        """Obtener dispositivo por ID (para compatibilidad con rutas existentes)"""
+        try:
+            return Device.query.filter_by(id=device_id).first()
+        except SQLAlchemyError as e:
+            logger.error(f"❌ Error obteniendo dispositivo por ID: {e}")
+            return None
+

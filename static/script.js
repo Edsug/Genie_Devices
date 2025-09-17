@@ -1,4 +1,5 @@
 // GenieACS WiFi Manager - JavaScript CON PAGINACIÓN COMPLETA
+
 // Variables globales
 let devices = { all: [], configured: [], unconfigured: [] };
 let currentUser = null;
@@ -68,7 +69,6 @@ function updateUserInfo(user) {
     const userInfoElement = document.getElementById('currentUser');
     if (userInfoElement) {
         userInfoElement.innerHTML = `
-            <i class="fas fa-user"></i>
             ${user.username} (${user.role_name})
         `;
     }
@@ -86,9 +86,11 @@ function setupEventListeners() {
     if (menuToggle) {
         menuToggle.addEventListener('click', toggleSidebar);
     }
+    
     if (sidebarOverlay) {
         sidebarOverlay.addEventListener('click', closeSidebar);
     }
+    
     if (sidebarClose) {
         sidebarClose.addEventListener('click', closeSidebar);
     }
@@ -152,45 +154,44 @@ function setupEventListeners() {
     });
     
     // Sidebar buttons
-  const csvUploadBtn = document.getElementById('csvUploadBtn');
-  if (csvUploadBtn) {
-    csvUploadBtn.addEventListener('click', function() {
-      closeSidebar();
-      openCSVImportModal();
-    });
-  }
-
-  // Configurar drag & drop y file input del modal
-  const dropArea = document.getElementById('dropArea');
-  const csvFileInput = document.getElementById('csvFileInput');
-
-  if (dropArea && csvFileInput) {
-    dropArea.addEventListener('click', () => csvFileInput.click());
-
-    dropArea.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropArea.classList.add('dragover');
-    });
-
-    dropArea.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      dropArea.classList.remove('dragover');
-    });
-
-    dropArea.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropArea.classList.remove('dragover');
-      const file = e.dataTransfer.files[0];
-      handleDroppedFile(file);
-    });
-
-    csvFileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      handleDroppedFile(file);
-    });
-  }
-
-
+    const csvUploadBtn = document.getElementById('csvUploadBtn');
+    if (csvUploadBtn) {
+        csvUploadBtn.addEventListener('click', function() {
+            closeSidebar();
+            openCSVImportModal();
+        });
+    }
+    
+    // Configurar drag & drop y file input del modal
+    const dropArea = document.getElementById('dropArea');
+    const csvFileInput = document.getElementById('csvFileInput');
+    
+    if (dropArea && csvFileInput) {
+        dropArea.addEventListener('click', () => csvFileInput.click());
+        
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.classList.add('dragover');
+        });
+        
+        dropArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('dragover');
+        });
+        
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            handleDroppedFile(file);
+        });
+        
+        csvFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            handleDroppedFile(file);
+        });
+    }
+    
     const showHistoryBtn = document.getElementById('showHistoryBtn');
     if (showHistoryBtn) {
         showHistoryBtn.addEventListener('click', function() {
@@ -206,151 +207,431 @@ function setupEventListeners() {
             showNotification('Historial importaciones próximamente', 'info');
         });
     }
+
+    // NUEVO: Event listeners para modal técnico
+    setupTechnicalModalListeners();
 }
 
-function openCSVImportModal() {
-  const modal = document.getElementById('csvImportModal');
-  if (modal) {
-    modal.classList.remove('hidden');
-  }
-  clearCSVImportLog();
-  clearProgressBar();
-  selectedFile = null;
-}
-
-function closeCSVImportModal() {
-  const modal = document.getElementById('csvImportModal');
-  if (modal) {
-    modal.classList.add('hidden');
-  }
-  selectedFile = null;
-}
-
-function handleDroppedFile(file) {
-  if (!file) return;
-  if (!file.name.endsWith('.csv')) {
-    logCSVImport('❌ Archivo inválido. Debe ser un archivo .csv');
-    return;
-  }
-  selectedFile = file;
-  const fileInfo = document.getElementById('selectedFileInfo');
-  if (fileInfo) {
-    fileInfo.textContent = `Archivo seleccionado: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-    fileInfo.classList.remove('hidden');
-  }
-  resetProgressBar();
-  uploadSelectedCSV();
-}
-
-function uploadSelectedCSV() {
-  if (!selectedFile) {
-    logCSVImport('❌ No hay archivo seleccionado para subir.');
-    return;
-  }
-  const formData = new FormData();
-  formData.append('file', selectedFile);
-
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/csv/upload');
-  xhr.withCredentials = true;
-
-  xhr.upload.onprogress = function(e) {
-    if (e.lengthComputable) {
-      const percent = (e.loaded / e.total) * 100;
-      updateProgressBar(percent);
-      logCSVImport(`⏳ Progreso: ${percent.toFixed(1)}%`);
+// NUEVA FUNCIÓN: Configurar listeners del modal técnico
+function setupTechnicalModalListeners() {
+    // Modal técnico submit
+    const technicalForm = document.getElementById('ssidPasswordForm');
+    if (technicalForm) {
+        technicalForm.addEventListener('submit', handleTechnicalFormSubmit);
     }
-  };
 
-  xhr.onload = function() {
-    hideProgressBar();
+    // Botón de LAN hosts
+    const loadLanHostsBtn = document.getElementById('loadLanHostsBtn');
+    if (loadLanHostsBtn) {
+        loadLanHostsBtn.addEventListener('click', loadLanHosts);
+    }
+
+    // Cerrar modal técnico
+    const closeTechModal = document.getElementById('closeTechModal');
+    if (closeTechModal) {
+        closeTechModal.addEventListener('click', closeTechnicalModal);
+    }
+}
+
+// NUEVA FUNCIÓN: Abrir modal técnico
+async function openTechnicalModal(serialNumber) {
     try {
-      const resp = JSON.parse(xhr.responseText);
-      if (xhr.status === 200 && resp.success) {
-        logCSVImport(`✅ Importación completada. Dispositivos configurados: ${resp.configured || 0}`);
-        if (resp.message) logCSVImport(`→ ${resp.message}`);
-        if (resp.skipped) logCSVImport(`Filas saltadas: ${resp.skipped}`);
-        if (resp.log) logCSVImport(`<pre style="overflow-x:auto">${resp.log}</pre>`);
-        loadDevicesPage(1);
-      } else {
-        logCSVImport(`❌ Error en el servidor: ${resp.message || 'Error desconocido'}`);
-      }
-    } catch {
-      logCSVImport(`❌ Error procesando respuesta del servidor.`);
+        // Obtener información del dispositivo
+        const response = await fetch(`/api/device-info/${encodeURIComponent(serialNumber)}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.message || 'Error obteniendo información del dispositivo');
+        }
+        
+        const device = data.device;
+        
+        // Llenar información técnica
+        document.getElementById('techSerial').textContent = device.serial_number || 'N/A';
+        document.getElementById('techMac').textContent = device.mac_address || device.mac || 'N/A';
+        document.getElementById('techProductClass').textContent = device.product_class || 'N/A';
+        document.getElementById('techSoftware').textContent = device.software_version || 'N/A';
+        document.getElementById('techHardware').textContent = device.hardware_version || 'N/A';
+        document.getElementById('techIP').textContent = device.ip_address || device.ip || 'N/A';
+        document.getElementById('techLastInform').textContent = device.last_inform || 'N/A';
+        document.getElementById('techTags').textContent = device.tags ? 
+            (Array.isArray(device.tags) ? device.tags.join(', ') : device.tags) : 'Ninguna';
+        
+        // Prellenar campos de SSID y contraseña si están disponibles
+        if (device.wifi_networks) {
+            const network24 = device.wifi_networks.find(n => n.band === '2.4GHz');
+            const network5 = device.wifi_networks.find(n => n.band === '5GHz');
+            
+            if (network24) {
+                document.getElementById('ssid24Input').value = network24.ssid || network24.ssid_current || '';
+                document.getElementById('password24Input').value = network24.password || '';
+            }
+            
+            if (network5) {
+                document.getElementById('ssid5Input').value = network5.ssid || network5.ssid_current || '';
+                document.getElementById('password5Input').value = network5.password || '';
+            }
+        }
+        
+        // Guardar el serial number para uso posterior
+        document.getElementById('ssidPasswordForm').dataset.serialNumber = serialNumber;
+        
+        // Limpiar container de LAN hosts
+        const lanHostsContainer = document.getElementById('lanHostsContainer');
+        if (lanHostsContainer) {
+            lanHostsContainer.innerHTML = '';
+        }
+        
+        // Mostrar modal
+        const modal = document.getElementById('technicalInfoModal');
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+        
+    } catch (error) {
+        console.error('Error abriendo modal técnico:', error);
+        showNotification('Error cargando información del dispositivo: ' + error.message, 'error');
     }
-  };
-
-  xhr.onerror = function() {
-    hideProgressBar();
-    logCSVImport('❌ Error durante la solicitud al servidor.');
-  };
-
-  logCSVImport('⏳ Iniciando importación...');
-  xhr.send(formData);
 }
 
-function logCSVImport(message) {
-  const logDiv = document.getElementById('csvUploadLog');
-  if (!logDiv) return;
-  logDiv.innerHTML += message + '<br>';
-  logDiv.scrollTop = logDiv.scrollHeight;
+// NUEVA FUNCIÓN: Cerrar modal técnico
+function closeTechnicalModal() {
+    const modal = document.getElementById('technicalInfoModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+    
+    // Limpiar formulario
+    const form = document.getElementById('ssidPasswordForm');
+    if (form) {
+        form.reset();
+        delete form.dataset.serialNumber;
+    }
+    
+    // Limpiar container de LAN hosts
+    const lanHostsContainer = document.getElementById('lanHostsContainer');
+    if (lanHostsContainer) {
+        lanHostsContainer.innerHTML = '';
+    }
 }
 
-function clearCSVImportLog() {
-  const logDiv = document.getElementById('csvUploadLog');
-  if (logDiv) logDiv.innerHTML = '';
-}
-
-function updateProgressBar(value) {
-  const progressBar = document.getElementById('csvUploadProgress');
-  if (progressBar) {
-    progressBar.value = value;
-    progressBar.style.display = 'block';
-  }
-}
-
-function resetProgressBar() {
-  const progressBar = document.getElementById('csvUploadProgress');
-  if (progressBar) {
-    progressBar.value = 0;
-    progressBar.style.display = 'block';
-  }
-}
-
-function hideProgressBar() {
-  const progressBar = document.getElementById('csvUploadProgress');
-  if (progressBar) {
-    progressBar.style.display = 'none';
-  }
-}
-
-async function loadDevicesPage(page) {
-    if (isLoading) {
-        console.log('⏳ Ya hay una carga en progreso...');
+// NUEVA FUNCIÓN: Manejar submit del formulario técnico
+async function handleTechnicalFormSubmit(e) {
+    e.preventDefault();
+    
+    const form = e.target;
+    const serialNumber = form.dataset.serialNumber;
+    
+    if (!serialNumber) {
+        showNotification('Error: No se encontró el número de serie del dispositivo', 'error');
         return;
     }
     
-    isLoading = true;
-    console.log(`📡 Cargando página ${page}...`);
+    const ssid24 = document.getElementById('ssid24Input').value.trim();
+    const password24 = document.getElementById('password24Input').value.trim();
+    const ssid5 = document.getElementById('ssid5Input').value.trim();
+    const password5 = document.getElementById('password5Input').value.trim();
     
-    const loadingState = document.getElementById('loadingState');
-    const errorState = document.getElementById('errorState');
-    const emptyState = document.getElementById('emptyState');
-    const devicesGrid = document.getElementById('devicesGrid');
-    const paginationControls = document.getElementById('paginationControls');
-    
-    // Mostrar loading
-    if (loadingState) loadingState.classList.remove('hidden');
-    if (errorState) errorState.classList.add('hidden');
-    if (emptyState) emptyState.classList.add('hidden');
-    if (devicesGrid) devicesGrid.classList.add('hidden');
-    if (paginationControls) paginationControls.classList.add('hidden');
+    // Validaciones básicas
+    if (!ssid24 && !password24 && !ssid5 && !password5) {
+        showNotification('Debe proporcionar al menos un SSID o contraseña para actualizar', 'warning');
+        return;
+    }
     
     try {
-        // Construir URL con parámetros
+        const updates = [];
+        
+        // Actualizar SSID 2.4GHz si se proporcionó
+        if (ssid24) {
+            const ssidResponse = await fetch('/api/device/update-ssid', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    serial_number: serialNumber,
+                    ssid: ssid24,
+                    band: '2.4GHz'
+                })
+            });
+            
+            const ssidData = await ssidResponse.json();
+            if (ssidData.success) {
+                updates.push('SSID 2.4GHz');
+            } else {
+                throw new Error(`Error SSID 2.4GHz: ${ssidData.message}`);
+            }
+        }
+        
+        // Actualizar contraseña 2.4GHz si se proporcionó
+        if (password24) {
+            const pwdResponse = await fetch('/api/device/update-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    serial_number: serialNumber,
+                    password: password24,
+                    band: '2.4GHz'
+                })
+            });
+            
+            const pwdData = await pwdResponse.json();
+            if (pwdData.success) {
+                updates.push('Contraseña 2.4GHz');
+            } else {
+                throw new Error(`Error contraseña 2.4GHz: ${pwdData.message}`);
+            }
+        }
+        
+        // Actualizar SSID 5GHz si se proporcionó
+        if (ssid5) {
+            const ssidResponse = await fetch('/api/device/update-ssid', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    serial_number: serialNumber,
+                    ssid: ssid5,
+                    band: '5GHz'
+                })
+            });
+            
+            const ssidData = await ssidResponse.json();
+            if (ssidData.success) {
+                updates.push('SSID 5GHz');
+            } else {
+                throw new Error(`Error SSID 5GHz: ${ssidData.message}`);
+            }
+        }
+        
+        // Actualizar contraseña 5GHz si se proporcionó
+        if (password5) {
+            const pwdResponse = await fetch('/api/device/update-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    serial_number: serialNumber,
+                    password: password5,
+                    band: '5GHz'
+                })
+            });
+            
+            const pwdData = await pwdResponse.json();
+            if (pwdData.success) {
+                updates.push('Contraseña 5GHz');
+            } else {
+                throw new Error(`Error contraseña 5GHz: ${pwdData.message}`);
+            }
+        }
+        
+        if (updates.length > 0) {
+            showNotification(`Actualizado correctamente: ${updates.join(', ')}`, 'success');
+            // Recargar dispositivos para mostrar cambios
+            await loadDevicesPage(currentPage);
+            closeTechnicalModal();
+        }
+        
+    } catch (error) {
+        console.error('Error actualizando dispositivo:', error);
+        showNotification('Error actualizando dispositivo: ' + error.message, 'error');
+    }
+}
+
+// NUEVA FUNCIÓN: Cargar LAN hosts
+async function loadLanHosts() {
+    const form = document.getElementById('ssidPasswordForm');
+    const serialNumber = form.dataset.serialNumber;
+    
+    if (!serialNumber) {
+        showNotification('Error: No se encontró el número de serie del dispositivo', 'error');
+        return;
+    }
+    
+    const lanHostsContainer = document.getElementById('lanHostsContainer');
+    const loadBtn = document.getElementById('loadLanHostsBtn');
+    
+    try {
+        // Mostrar loading
+        loadBtn.disabled = true;
+        loadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cargando...';
+        lanHostsContainer.innerHTML = '<p>Cargando hosts LAN...</p>';
+        
+        const response = await fetch(`/api/device/${encodeURIComponent(serialNumber)}/lan-hosts`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.message || 'Error obteniendo hosts LAN');
+        }
+        
+        const lanHosts = data.lan_hosts || [];
+        
+        if (lanHosts.length === 0) {
+            lanHostsContainer.innerHTML = '<p>No se encontraron hosts LAN conectados.</p>';
+        } else {
+            let hostListHTML = '<h4>Hosts LAN Conectados:</h4><div class="lan-hosts-list">';
+            
+            lanHosts.forEach(host => {
+                hostListHTML += `
+                    <div class="lan-host-item">
+                        <div><strong>IP:</strong> ${host.ip_address || 'N/A'}</div>
+                        <div><strong>MAC:</strong> ${host.mac_address || 'N/A'}</div>
+                        <div><strong>Hostname:</strong> ${host.hostname || 'N/A'}</div>
+                        <div><strong>Tipo:</strong> ${host.interface_type || 'N/A'}</div>
+                        <div><strong>Activo:</strong> ${host.active === 'true' ? 'Sí' : 'No'}</div>
+                    </div>
+                `;
+            });
+            
+            hostListHTML += '</div>';
+            lanHostsContainer.innerHTML = hostListHTML;
+        }
+        
+    } catch (error) {
+        console.error('Error cargando LAN hosts:', error);
+        lanHostsContainer.innerHTML = `<p style="color: var(--color-error);">Error cargando hosts LAN: ${error.message}</p>`;
+    } finally {
+        // Restaurar botón
+        loadBtn.disabled = false;
+        loadBtn.innerHTML = '<i class="fas fa-network-wired"></i> Cargar Hosts LAN';
+    }
+}
+
+function openCSVImportModal() {
+    const modal = document.getElementById('csvImportModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+    }
+    clearCSVImportLog();
+    clearProgressBar();
+    selectedFile = null;
+}
+
+function closeCSVImportModal() {
+    const modal = document.getElementById('csvImportModal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+    selectedFile = null;
+}
+
+function handleDroppedFile(file) {
+    if (!file) return;
+    
+    if (!file.name.endsWith('.csv')) {
+        logCSVImport('❌ Archivo inválido. Debe ser un archivo .csv');
+        return;
+    }
+    
+    selectedFile = file;
+    const fileInfo = document.getElementById('selectedFileInfo');
+    if (fileInfo) {
+        fileInfo.textContent = `Archivo seleccionado: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        fileInfo.classList.remove('hidden');
+    }
+    
+    resetProgressBar();
+    uploadSelectedCSV();
+}
+
+function uploadSelectedCSV() {
+    if (!selectedFile) {
+        logCSVImport('❌ No hay archivo seleccionado para subir.');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/csv/upload');
+    xhr.withCredentials = true;
+    
+    xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+            const percent = (e.loaded / e.total) * 100;
+            updateProgressBar(percent);
+            logCSVImport(`⏳ Progreso: ${percent.toFixed(1)}%`);
+        }
+    };
+    
+    xhr.onload = function() {
+        hideProgressBar();
+        try {
+            const resp = JSON.parse(xhr.responseText);
+            if (xhr.status === 200 && resp.success) {
+                logCSVImport(`✅ Importación completada. Dispositivos configurados: ${resp.configured || 0}`);
+                if (resp.message) logCSVImport(`→ ${resp.message}`);
+                if (resp.skipped) logCSVImport(`Filas saltadas: ${resp.skipped}`);
+                if (resp.log) logCSVImport(`\n${resp.log}`);
+                loadDevicesPage(1);
+            } else {
+                logCSVImport(`❌ Error en el servidor: ${resp.message || 'Error desconocido'}`);
+            }
+        } catch {
+            logCSVImport(`❌ Error procesando respuesta del servidor.`);
+        }
+    };
+    
+    xhr.onerror = function() {
+        hideProgressBar();
+        logCSVImport('❌ Error durante la solicitud al servidor.');
+    };
+    
+    logCSVImport('⏳ Iniciando importación...');
+    xhr.send(formData);
+}
+
+function logCSVImport(message) {
+    const logDiv = document.getElementById('csvUploadLog');
+    if (!logDiv) return;
+    
+    logDiv.innerHTML += message + '\n';
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+function clearCSVImportLog() {
+    const logDiv = document.getElementById('csvUploadLog');
+    if (logDiv) {
+        logDiv.innerHTML = '';
+    }
+}
+
+function updateProgressBar(percent) {
+    const progressBar = document.getElementById('csvUploadProgress');
+    if (progressBar) {
+        progressBar.value = percent;
+        progressBar.classList.remove('hidden');
+    }
+}
+
+function resetProgressBar() {
+    const progressBar = document.getElementById('csvUploadProgress');
+    if (progressBar) {
+        progressBar.value = 0;
+        progressBar.classList.remove('hidden');
+    }
+}
+
+function hideProgressBar() {
+    const progressBar = document.getElementById('csvUploadProgress');
+    if (progressBar) {
+        progressBar.classList.add('hidden');
+    }
+}
+
+function clearProgressBar() {
+    hideProgressBar();
+}
+
+async function loadDevicesPage(page) {
+    if (isLoading) return;
+    
+    console.log(`📄 Cargando página ${page} con filtro '${currentFilter}' y búsqueda '${currentSearch}'`);
+    
+    isLoading = true;
+    showLoadingState();
+    
+    try {
         const params = new URLSearchParams({
-            page: page,
-            per_page: devicesPerPage,
+            page: page.toString(),
+            per_page: devicesPerPage.toString(),
             filter: currentFilter
         });
         
@@ -358,440 +639,317 @@ async function loadDevicesPage(page) {
             params.append('search', currentSearch);
         }
         
-        const response = await fetch(`/api/devices?${params}`);
+        const response = await fetch(`${API_BASE}/devices?${params}`);
         
         if (!response.ok) {
-            throw new Error(`Error HTTP: ${response.status}`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
         const data = await response.json();
         
-        if (data.success) {
-            console.log(`✅ Página ${page} cargada:`, data.pagination);
-            
-            // Actualizar variables globales
-            currentPage = data.pagination.page;
-            totalPages = data.pagination.pages;
-            
-            // Actualizar contadores
-            updateDeviceCounts(data.counts);
-            
-            // Mostrar dispositivos
-            displayDevices(data.devices);
-            
-            // Mostrar controles de paginación
-            displayPagination(data.pagination);
-            
-            // Mostrar información de cache
-            if (data.cache_age !== undefined) {
-                const cacheInfo = data.cache_age === 0 ? 'Datos frescos' : `Cache: ${Math.floor(data.cache_age/60)}min ${data.cache_age%60}s`;
-                console.log(`ℹ️ ${cacheInfo}`);
-                updateCacheInfo(cacheInfo);
-            }
-            
-        } else {
-            throw new Error(data.message || 'Error desconocido');
+        if (!data.success) {
+            throw new Error(data.message || 'Error desconocido del servidor');
         }
+        
+        // Actualizar variables globales
+        currentPage = data.pagination.page;
+        totalPages = data.pagination.pages;
+        
+        // Actualizar interfaz
+        updateDeviceGrid(data.devices);
+        updatePagination(data.pagination);
+        updateFilterCounts(data.counts);
+        updateCacheInfo(data.cache_age, data.last_update);
+        
+        hideLoadingState();
+        
+        console.log(`✅ Página ${page} cargada: ${data.devices.length} dispositivos`);
         
     } catch (error) {
         console.error('❌ Error cargando dispositivos:', error);
-        showErrorState();
-    } finally {
+        showErrorState(error.message);
         isLoading = false;
-        if (loadingState) loadingState.classList.add('hidden');
     }
+    
+    isLoading = false;
 }
 
-function updateDeviceCounts(counts) {
-    const countAll = document.getElementById('countAll');
-    const countConfigured = document.getElementById('countConfigured');
-    const countUnconfigured = document.getElementById('countUnconfigured');
-    
-    if (countAll) countAll.textContent = counts.total;
-    if (countConfigured) countConfigured.textContent = counts.configured;
-    if (countUnconfigured) countUnconfigured.textContent = counts.unconfigured;
-    
-    // Mostrar total filtrado si hay búsqueda
-    if (currentSearch && counts.filtered !== counts.total) {
-        const filterInfo = document.getElementById('filterInfo');
-        if (filterInfo) {
-            filterInfo.textContent = `Mostrando ${counts.filtered} de ${counts.total} dispositivos`;
-            filterInfo.classList.remove('hidden');
-        }
-    } else {
-        const filterInfo = document.getElementById('filterInfo');
-        if (filterInfo) {
-            filterInfo.classList.add('hidden');
-        }
-    }
-}
-
-function updateCacheInfo(cacheInfo) {
-    const cacheInfoElement = document.getElementById('cacheInfo');
-    if (cacheInfoElement) {
-        cacheInfoElement.textContent = cacheInfo;
-    }
-}
-
-function setActiveFilter(filter) {
-    currentFilter = filter;
-    currentPage = 1; // Reset a primera página al cambiar filtro
-    
-    // Actualizar UI de tabs
-    document.querySelectorAll('.filter-tab').forEach(tab => {
-        if (tab.dataset.filter === filter) {
-            tab.classList.add('active');
-        } else {
-            tab.classList.remove('active');
-        }
-    });
-    
-    // Cargar nueva página
-    loadDevicesPage(1);
-}
-
-function displayDevices(deviceList) {
-    const devicesGrid = document.getElementById('devicesGrid');
-    const emptyState = document.getElementById('emptyState');
-    
-    if (!devicesGrid) return;
+function updateDeviceGrid(deviceList) {
+    const grid = document.getElementById('devicesGrid');
+    if (!grid) return;
     
     if (deviceList.length === 0) {
-        devicesGrid.classList.add('hidden');
-        if (emptyState) {
-            emptyState.classList.remove('hidden');
-            const emptyText = emptyState.querySelector('.empty-text p');
-            if (emptyText) {
-                if (currentSearch) {
-                    emptyText.textContent = `No se encontraron dispositivos que coincidan con "${currentSearch}"`;
-                } else {
-                    emptyText.textContent = 'No hay dispositivos disponibles';
-                }
-            }
-        }
+        showEmptyState();
         return;
     }
     
-    if (emptyState) emptyState.classList.add('hidden');
+    grid.innerHTML = '';
     
-    devicesGrid.innerHTML = deviceList.map(device => createDeviceCard(device)).join('');
-    devicesGrid.classList.remove('hidden');
-    
-    // Agregar animación de entrada
-    setTimeout(() => {
-        devicesGrid.querySelectorAll('.device-card').forEach((card, index) => {
-            setTimeout(() => {
-                card.style.opacity = '1';
-                card.style.transform = 'translateY(0)';
-            }, index * 100);
-        });
-    }, 50);
+    deviceList.forEach((device, index) => {
+        const deviceCard = createDeviceCard(device);
+        grid.appendChild(deviceCard);
+        
+        // Animación escalonada
+        setTimeout(() => {
+            deviceCard.classList.add('slide-up');
+        }, index * 50);
+    });
 }
 
 function createDeviceCard(device) {
+    const card = document.createElement('div');
+    card.className = `device-card ${device.configured ? 'configured' : 'unconfigured'}`;
+    card.tabIndex = 0;
+    
+    const statusIcon = device.configured ? 'fa-check-circle' : 'fa-exclamation-triangle';
     const statusClass = device.configured ? 'configured' : 'unconfigured';
     const statusText = device.configured ? 'Configurado' : 'No configurado';
-    const statusIcon = device.configured ? 'check-circle' : 'exclamation-triangle';
-    const primaryNetwork = device.wifi_networks.find(net => net.is_primary) || device.wifi_networks[0];
-    const mainSSID = primaryNetwork ? (primaryNetwork.ssid || 'Sin SSID') : 'Sin SSID';
-
-    // Construir HTML para las redes WiFi asociadas
-    let networksHtml = '';
+    
+    // Construir redes WiFi sin botones de edición
+    let networksHTML = '';
     if (device.wifi_networks && device.wifi_networks.length > 0) {
-        networksHtml = device.wifi_networks.map(network => `
-            <div class="network-item">
-                <div class="network-header">
-                    <span class="network-band band-${network.band === '5GHz' ? '5g' : '2g'}">${network.band}</span>
-                    <span class="network-ssid">${network.ssid}</span>
-                    <button class="password-toggle-btn ${!network.password ? 'no-password' : ''}" 
-                            onclick="togglePassword('${device.serial_number}', '${network.band}')"
-                            ${!network.password ? 'disabled' : ''}>
-                        <i class="fas fa-${network.password ? 'eye' : 'eye-slash'}"></i>
-                    </button>
-                </div>
-                <div class="network-password hidden" id="password-${device.serial_number}-${network.band}">
-                    ${network.password || 'Sin contraseña'}
-                </div>
-            </div>
-        `).join('');
-    }
-
-    return `
-        <div class="device-card ${statusClass}" data-serial="${device.serial_number}" style="opacity: 0; transform: translateY(20px); transition: all 0.5s ease;">
-            <div class="device-header">
-                <div class="device-title-section">
-                    <button class="device-title" onclick="showDeviceDetails('${device.serial_number}')">
-                        ${device.serial_number}
-                    </button>
-
-                    ${device.contract_number ? `
-                    <div class="device-contract has-contract" onclick="editContract('${device.serial_number}')">
-                        <i class="fas fa-file-contract"></i>
-                        <span>Contrato: ${device.contract_number}</span>
-                        <i class="fas fa-edit edit-icon"></i>
+        device.wifi_networks.forEach(network => {
+            const bandClass = network.band === '5GHz' ? 'band-5g' : 'band-2g';
+            const ssid = network.ssid || network.ssid_current || 'Sin SSID';
+            
+            networksHTML += `
+                <div class="network-item">
+                    <div class="network-header">
+                        <span class="network-band ${bandClass}">${network.band}</span>
+                        <span class="network-ssid">${ssid}</span>
                     </div>
-                    ` : `
-                    <div class="device-contract no-contract" onclick="editContract('${device.serial_number}')">
-                        <i class="fas fa-plus-circle"></i>
-                        <span>Agregar contrato</span>
-                        <i class="fas fa-edit edit-icon"></i>
-                    </div>
-                    `}
-
-                    ${device.customer_name ? `
-                    <div class="device-customer">
-                        <i class="fas fa-user"></i>
-                        <span>${device.customer_name}</span>
-                    </div>
-                    ` : ''}
                 </div>
-
-                <div class="device-status ${statusClass}">
-                    <i class="fas fa-${statusIcon}"></i>
-                    <span>${statusText}</span>
-                </div>
-            </div>
-
-            ${networksHtml ? `
-            <div class="device-networks">
-                ${networksHtml}
-            </div>
-            ` : ''}
-
-            <div class="device-info">
-                <div class="device-detail">
-                    <i class="fas fa-network-wired"></i>
-                    <span>${device.ip}</span>
-                </div>
-                <div class="device-detail">
-                    <i class="fas fa-microchip"></i>
-                    <span>${device.product_class}</span>
-                </div>
-                ${device.last_inform ? `
-                <div class="device-detail">
-                    <i class="fas fa-clock"></i>
-                    <span>${device.last_inform}</span>
-                </div>
-                ` : ''}
-            </div>
-        </div>
-    `;
-}
-
-function displayPagination(pagination) {
-    const paginationControls = document.getElementById('paginationControls');
-    
-    if (!paginationControls || pagination.pages <= 1) {
-        if (paginationControls) paginationControls.classList.add('hidden');
-        return;
-    }
-    
-    let paginationHtml = `
-        <div class="pagination-info">
-            Página ${pagination.page} de ${pagination.pages} (${pagination.total} dispositivos)
-        </div>
-        <div class="pagination-buttons">
-    `;
-    
-    // Botón anterior
-    if (pagination.has_prev) {
-        paginationHtml += `
-            <button class="btn btn-secondary" onclick="goToPage(${pagination.prev_page})">
-                <i class="fas fa-chevron-left"></i> Anterior
-            </button>
-        `;
-    } else {
-        paginationHtml += `
-            <button class="btn btn-secondary" disabled>
-                <i class="fas fa-chevron-left"></i> Anterior
-            </button>
-        `;
-    }
-    
-    // Páginas numéricas
-    const startPage = Math.max(1, pagination.page - 2);
-    const endPage = Math.min(pagination.pages, pagination.page + 2);
-    
-    if (startPage > 1) {
-        paginationHtml += `<button class="btn btn-secondary" onclick="goToPage(1)">1</button>`;
-        if (startPage > 2) {
-            paginationHtml += `<span class="pagination-dots">...</span>`;
-        }
-    }
-    
-    for (let i = startPage; i <= endPage; i++) {
-        if (i === pagination.page) {
-            paginationHtml += `<button class="btn btn-primary">${i}</button>`;
-        } else {
-            paginationHtml += `<button class="btn btn-secondary" onclick="goToPage(${i})">${i}</button>`;
-        }
-    }
-    
-    if (endPage < pagination.pages) {
-        if (endPage < pagination.pages - 1) {
-            paginationHtml += `<span class="pagination-dots">...</span>`;
-        }
-        paginationHtml += `<button class="btn btn-secondary" onclick="goToPage(${pagination.pages})">${pagination.pages}</button>`;
-    }
-    
-    // Botón siguiente
-    if (pagination.has_next) {
-        paginationHtml += `
-            <button class="btn btn-secondary" onclick="goToPage(${pagination.next_page})">
-                Siguiente <i class="fas fa-chevron-right"></i>
-            </button>
-        `;
-    } else {
-        paginationHtml += `
-            <button class="btn btn-secondary" disabled>
-                Siguiente <i class="fas fa-chevron-right"></i>
-            </button>
-        `;
-    }
-    
-    paginationHtml += `
-        </div>
-    `;
-    
-    paginationControls.innerHTML = paginationHtml;
-    paginationControls.classList.remove('hidden');
-}
-
-function goToPage(page) {
-    if (page !== currentPage && page >= 1 && page <= totalPages) {
-        loadDevicesPage(page);
-        
-        // Scroll to top suavemente
-        window.scrollTo({
-            top: 0,
-            behavior: 'smooth'
+            `;
         });
+    } else {
+        networksHTML = '<div class="network-item"><span class="network-ssid">No hay redes WiFi disponibles</span></div>';
+    }
+    
+    card.innerHTML = `
+        <div class="device-header">
+            <div class="device-title-section">
+                <button class="device-title technical-info-btn" data-serial="${device.serial_number}">
+                    ${device.title_ssid || 'Sin SSID'}
+                </button>
+                <div class="device-contract ${device.contract_number ? 'has-contract' : 'no-contract'}">
+                    <i class="fas fa-file-contract"></i>
+                    ${device.contract_number || 'Sin contrato'}
+                </div>
+                <div class="device-customer ${device.customer_name ? 'has-customer' : 'no-customer'}">
+                    <i class="fas fa-user"></i>
+                    ${device.customer_name || 'Sin cliente'}
+                </div>
+            </div>
+            <div class="device-status ${statusClass}">
+                <i class="fas ${statusIcon}"></i>
+                ${statusText}
+            </div>
+        </div>
+        
+        <div class="device-networks">
+            ${networksHTML}
+        </div>
+        
+        <div class="device-info">
+            <div class="device-detail">
+                <i class="fas fa-barcode"></i>
+                ${device.serial_number}
+            </div>
+            <div class="device-detail">
+                <i class="fas fa-network-wired"></i>
+                ${device.ip || 'Sin IP'}
+            </div>
+            <div class="device-detail">
+                <i class="fas fa-microchip"></i>
+                ${device.product_class || 'N/A'}
+            </div>
+        </div>
+    `;
+    
+    // Agregar event listener al botón del título
+    const titleBtn = card.querySelector('.technical-info-btn');
+    if (titleBtn) {
+        titleBtn.addEventListener('click', function() {
+            const serialNumber = this.dataset.serial;
+            openTechnicalModal(serialNumber);
+        });
+    }
+    
+    return card;
+}
+
+function updatePagination(pagination) {
+    const paginationContainer = document.getElementById('paginationContainer');
+    if (!paginationContainer) return;
+    
+    let paginationHTML = '';
+    
+    if (pagination.pages > 1) {
+        paginationHTML = '<div class="pagination">';
+        
+        // Botón anterior
+        if (pagination.has_prev) {
+            paginationHTML += `<button class="pagination-btn" onclick="loadDevicesPage(${pagination.prev_page})">
+                <i class="fas fa-chevron-left"></i>
+            </button>`;
+        }
+        
+        // Números de página
+        const startPage = Math.max(1, pagination.page - 2);
+        const endPage = Math.min(pagination.pages, pagination.page + 2);
+        
+        if (startPage > 1) {
+            paginationHTML += `<button class="pagination-btn" onclick="loadDevicesPage(1)">1</button>`;
+            if (startPage > 2) {
+                paginationHTML += `<span class="pagination-dots">...</span>`;
+            }
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            const activeClass = i === pagination.page ? 'active' : '';
+            paginationHTML += `<button class="pagination-btn ${activeClass}" onclick="loadDevicesPage(${i})">${i}</button>`;
+        }
+        
+        if (endPage < pagination.pages) {
+            if (endPage < pagination.pages - 1) {
+                paginationHTML += `<span class="pagination-dots">...</span>`;
+            }
+            paginationHTML += `<button class="pagination-btn" onclick="loadDevicesPage(${pagination.pages})">${pagination.pages}</button>`;
+        }
+        
+        // Botón siguiente
+        if (pagination.has_next) {
+            paginationHTML += `<button class="pagination-btn" onclick="loadDevicesPage(${pagination.next_page})">
+                <i class="fas fa-chevron-right"></i>
+            </button>`;
+        }
+        
+        paginationHTML += '</div>';
+        
+        // Info de paginación
+        paginationHTML += `
+            <div class="pagination-info">
+                Mostrando ${((pagination.page - 1) * pagination.per_page) + 1}-${Math.min(pagination.page * pagination.per_page, pagination.total)} 
+                de ${pagination.total} dispositivos
+            </div>
+        `;
+    }
+    
+    paginationContainer.innerHTML = paginationHTML;
+}
+
+function updateFilterCounts(counts) {
+    const allTab = document.querySelector('[data-filter="all"] .tab-count');
+    const configuredTab = document.querySelector('[data-filter="configured"] .tab-count');
+    const unconfiguredTab = document.querySelector('[data-filter="unconfigured"] .tab-count');
+    
+    if (allTab) allTab.textContent = counts.total || 0;
+    if (configuredTab) configuredTab.textContent = counts.configured || 0;
+    if (unconfiguredTab) unconfiguredTab.textContent = counts.unconfigured || 0;
+}
+
+function updateCacheInfo(cacheAge, lastUpdate) {
+    // Actualizar info de cache si existe elemento en la UI
+    const cacheInfo = document.getElementById('cacheInfo');
+    if (cacheInfo) {
+        const ageText = cacheAge < 60 ? `${cacheAge}s` : `${Math.floor(cacheAge/60)}m ${cacheAge%60}s`;
+        cacheInfo.textContent = `Cache: ${ageText}`;
+    }
+}
+
+function showLoadingState() {
+    const loadingState = document.getElementById('loadingState');
+    const devicesGrid = document.getElementById('devicesGrid');
+    const emptyState = document.getElementById('emptyState');
+    const errorState = document.getElementById('errorState');
+    
+    if (loadingState) loadingState.classList.remove('hidden');
+    if (devicesGrid) devicesGrid.innerHTML = '';
+    if (emptyState) emptyState.classList.add('hidden');
+    if (errorState) errorState.classList.add('hidden');
+}
+
+function hideLoadingState() {
+    const loadingState = document.getElementById('loadingState');
+    if (loadingState) loadingState.classList.add('hidden');
+}
+
+function showEmptyState() {
+    const emptyState = document.getElementById('emptyState');
+    const loadingState = document.getElementById('loadingState');
+    const errorState = document.getElementById('errorState');
+    
+    if (emptyState) emptyState.classList.remove('hidden');
+    if (loadingState) loadingState.classList.add('hidden');
+    if (errorState) errorState.classList.add('hidden');
+}
+
+function showErrorState(message = 'Error cargando dispositivos') {
+    const errorState = document.getElementById('errorState');
+    const loadingState = document.getElementById('loadingState');
+    const emptyState = document.getElementById('emptyState');
+    
+    if (errorState) {
+        errorState.classList.remove('hidden');
+        const errorText = errorState.querySelector('.error-text p');
+        if (errorText) {
+            errorText.textContent = message;
+        }
+    }
+    if (loadingState) loadingState.classList.add('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
+}
+
+function setActiveFilter(filter) {
+    // Actualizar filtro activo visualmente
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    const activeTab = document.querySelector(`[data-filter="${filter}"]`);
+    if (activeTab) {
+        activeTab.classList.add('active');
+    }
+    
+    // Actualizar filtro actual y cargar primera página
+    currentFilter = filter;
+    loadDevicesPage(1);
+}
+
+function handleSearch() {
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        currentSearch = searchInput.value.trim();
+        loadDevicesPage(1);
+    }
+}
+
+function clearSearch() {
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        currentSearch = '';
+        loadDevicesPage(1);
     }
 }
 
 async function forceRefreshDevices() {
-    console.log('🔄 Forzando actualización...');
-    
-    const refreshBtn = document.getElementById('refreshBtn');
-    if (refreshBtn) {
-        refreshBtn.disabled = true;
-        const icon = refreshBtn.querySelector('i');
-        if (icon) {
-            icon.classList.add('fa-spin');
-        }
-    }
-    
     try {
         const response = await fetch('/api/devices/refresh', {
             method: 'POST'
         });
         
         if (response.ok) {
-            await loadDevicesPage(1);
-            showNotification('Dispositivos actualizados correctamente', 'success');
-        } else {
-            throw new Error('Error al actualizar');
+            const data = await response.json();
+            if (data.success) {
+                await loadDevicesPage(currentPage);
+                showNotification('Dispositivos actualizados correctamente', 'success');
+            }
         }
     } catch (error) {
-        console.error('❌ Error refrescando:', error);
-        showNotification('Error al actualizar dispositivos', 'error');
-    } finally {
-        if (refreshBtn) {
-            refreshBtn.disabled = false;
-            const icon = refreshBtn.querySelector('i');
-            if (icon) {
-                icon.classList.remove('fa-spin');
-            }
-        }
+        console.error('Error refrescando dispositivos:', error);
+        showNotification('Error actualizando dispositivos', 'error');
     }
-}
-
-function handleSearch() {
-    const searchInput = document.getElementById('searchInput');
-    if (!searchInput) return;
-    
-    const query = searchInput.value.trim();
-    
-    // Actualizar búsqueda actual
-    currentSearch = query;
-    
-    // Reset a primera página
-    currentPage = 1;
-    
-    // Cargar nueva búsqueda
-    loadDevicesPage(1);
-    
-    // Mostrar/ocultar botón clear
-    const searchClear = document.getElementById('searchClear');
-    if (searchClear) {
-        if (query) {
-            searchClear.classList.remove('hidden');
-        } else {
-            searchClear.classList.add('hidden');
-        }
-    }
-}
-
-function clearSearch() {
-    const searchInput = document.getElementById('searchInput');
-    const searchClear = document.getElementById('searchClear');
-    
-    if (searchInput) {
-        searchInput.value = '';
-    }
-    if (searchClear) {
-        searchClear.classList.add('hidden');
-    }
-    
-    // Limpiar búsqueda
-    currentSearch = '';
-    currentPage = 1;
-    
-    // Recargar sin búsqueda
-    loadDevicesPage(1);
-}
-
-// Funciones de dispositivos
-function showDeviceDetails(serial) {
-    showNotification(`Detalles de ${serial} - Próximamente`, 'info');
-}
-
-function editContract(serial) {
-    showNotification(`Editar contrato de ${serial} - Próximamente`, 'info');
-}
-
-function togglePassword(serial, band) {
-    const passwordElement = document.getElementById(`password-${serial}-${band}`);
-    if (passwordElement) {
-        passwordElement.classList.toggle('hidden');
-        
-        // Cambiar icono del botón
-        const button = passwordElement.previousElementSibling.querySelector('.password-toggle-btn');
-        if (button) {
-            const icon = button.querySelector('i');
-            if (icon) {
-                if (passwordElement.classList.contains('hidden')) {
-                    icon.className = 'fas fa-eye';
-                } else {
-                    icon.className = 'fas fa-eye-slash';
-                }
-            }
-        }
-    }
-}
-
-function showErrorState() {
-    const loadingState = document.getElementById('loadingState');
-    const errorState = document.getElementById('errorState');
-    const emptyState = document.getElementById('emptyState');
-    const devicesGrid = document.getElementById('devicesGrid');
-    const paginationControls = document.getElementById('paginationControls');
-    
-    if (loadingState) loadingState.classList.add('hidden');
-    if (errorState) errorState.classList.remove('hidden');
-    if (emptyState) emptyState.classList.add('hidden');
-    if (devicesGrid) devicesGrid.classList.add('hidden');
-    if (paginationControls) paginationControls.classList.add('hidden');
 }
 
 function toggleSidebar() {
@@ -815,96 +973,67 @@ function closeSidebar() {
 }
 
 function closeModals() {
-    document.querySelectorAll('.modal-overlay').forEach(modal => {
-        modal.classList.add('hidden');
-    });
+    // Cerrar CSV import modal
+    const csvModal = document.getElementById('csvImportModal');
+    if (csvModal && !csvModal.classList.contains('hidden')) {
+        closeCSVImportModal();
+    }
+    
+    // Cerrar modal técnico
+    const techModal = document.getElementById('technicalInfoModal');
+    if (techModal && !techModal.classList.contains('hidden')) {
+        closeTechnicalModal();
+    }
 }
 
 function showNotification(message, type = 'info') {
-    console.log(`📢 ${type.toUpperCase()}: ${message}`);
-    
-    const container = document.getElementById('notificationContainer') || createNotificationContainer();
-    
+    // Crear elemento de notificación
     const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
+    notification.className = `notification ${type}`;
+    
+    const iconMap = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-circle',
+        warning: 'fa-exclamation-triangle',
+        info: 'fa-info-circle'
+    };
+    
     notification.innerHTML = `
         <div class="notification-content">
-            <i class="notification-icon fas fa-${getNotificationIcon(type)}"></i>
+            <i class="fas ${iconMap[type]} notification-icon"></i>
             <span class="notification-text">${message}</span>
-            <button class="notification-close" onclick="this.parentElement.parentElement.remove()">
+            <button class="notification-close">
                 <i class="fas fa-times"></i>
             </button>
         </div>
     `;
     
-    container.appendChild(notification);
+    // Agregar al DOM
+    document.body.appendChild(notification);
     
     // Mostrar con animación
-    setTimeout(() => {
-        notification.classList.add('show');
-    }, 100);
+    setTimeout(() => notification.classList.add('show'), 100);
     
-    // Auto remove después de 5 segundos
+    // Auto-ocultar después de 5 segundos
     setTimeout(() => {
-        if (notification.parentElement) {
+        notification.classList.remove('show');
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 5000);
+    
+    // Event listener para cerrar manualmente
+    const closeBtn = notification.querySelector('.notification-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
             notification.classList.remove('show');
             setTimeout(() => {
-                if (notification.parentElement) {
-                    notification.remove();
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
                 }
             }, 300);
-        }
-    }, 5000);
-}
-
-function createNotificationContainer() {
-    const container = document.createElement('div');
-    container.id = 'notificationContainer';
-    container.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 3000;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    `;
-    document.body.appendChild(container);
-    return container;
-}
-
-function getNotificationIcon(type) {
-    switch (type) {
-        case 'success': return 'check-circle';
-        case 'error': return 'exclamation-triangle';
-        case 'warning': return 'exclamation-circle';
-        default: return 'info-circle';
+        });
     }
 }
-
-// Keyboard shortcuts
-document.addEventListener('keydown', function(e) {
-    // Ctrl + R para refresh
-    if (e.ctrlKey && e.key === 'r') {
-        e.preventDefault();
-        forceRefreshDevices();
-    }
-    
-    // Flecha izquierda para página anterior
-    if (e.key === 'ArrowLeft' && e.altKey && currentPage > 1) {
-        e.preventDefault();
-        goToPage(currentPage - 1);
-    }
-    
-    // Flecha derecha para página siguiente
-    if (e.key === 'ArrowRight' && e.altKey && currentPage < totalPages) {
-        e.preventDefault();
-        goToPage(currentPage + 1);
-    }
-    
-    // Esc para cerrar sidebar
-    if (e.key === 'Escape') {
-        closeSidebar();
-        closeModals();
-    }
-});
