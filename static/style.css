@@ -1388,6 +1388,11 @@ h6 { font-size: var(--font-size-md); }
   transform: translateY(var(--space-20));
 }
 
+.device-card.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
 .device-card.slide-up {
   opacity: 1;
   transform: translateY(0);
@@ -3140,4 +3145,103 @@ h6 { font-size: var(--font-size-md); }
     color: var(--color-cream-50);
     font-family: var(--font-family-mono);
     font-weight: bold;
+}
+
+/* Estilos para la paginación */
+.pagination-container {
+    margin: 20px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.pagination-btn {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #007bff;
+    padding: 8px 12px;
+    margin: 0 3px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+    min-width: 40px;
+    text-align: center;
+}
+
+.pagination-btn:hover:not(.disabled) {
+    background-color: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.pagination-btn.active {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.pagination-btn.disabled {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    border-color: #dee2e6;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.pagination-dots {
+    margin: 0 5px;
+    color: #6c757d;
+    user-select: none;
+}
+
+.pagination-info {
+    color: #6c757d;
+    font-size: 14px;
+    margin-top: 10px;
+    text-align: center;
+}
+
+/* Mejoras para la cuadrícula de dispositivos */
+.devices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+    padding: 20px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Mejoras para los estados de carga */
+.loading-state, .error-state, .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    text-align: center;
+    min-height: 300px;
+}
+
+.loading-spinner {
+    font-size: 48px;
+    color: #007bff;
+    margin-bottom: 20px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.hidden {
+    display: none !important;
 }

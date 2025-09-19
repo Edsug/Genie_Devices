@@ -136,7 +136,6 @@
 
     <!-- Main Content -->
     <main class="main-container">
-        <div id="devicesGrid" class="devices-grid"></div>
         <!-- Loading State -->
         <div class="loading-state" id="loadingIndicator">
             <div class="loading-spinner">
@@ -175,23 +174,12 @@
         </div>
 
         <!-- Devices Grid -->
-        <div class="devices-grid" id="devicesContainer">
+        <div class="devices-grid" id="devicesGrid">
             <!-- Las tarjetas de dispositivos se generan dinámicamente -->
         </div>
 
         <!-- Pagination -->
-        <div class="pagination hidden" id="paginationContainer">
-            <div class="pagination-info" id="pageInfo">
-                Página 1 de 1
-            </div>
-            <div class="pagination-controls">
-                <button class="btn btn-secondary btn-sm" id="prevPageBtn" disabled>
-                    <i class="fas fa-chevron-left"></i> Anterior
-                </button>
-                <button class="btn btn-secondary btn-sm" id="nextPageBtn" disabled>
-                    Siguiente <i class="fas fa-chevron-right"></i>
-                </button>
-            </div>
+        <div class="pagination-container hidden" id="paginationContainer">
         </div>
     </main>
 
@@ -260,7 +248,12 @@
                         <!-- Nueva Contraseña 2.4GHz -->
                         <div class="form-group">
                             <label for="newPassword24">Nueva Contraseña (dejar en blanco para no cambiar)</label>
-                            <input type="password" id="newPassword24" class="form-control" placeholder="Mínimo 8 caracteres">
+                            <div class="password-display-group">
+                                <input type="password" id="newPassword24" class="form-control" placeholder="Mínimo 8 caracteres">
+                                <button type="button" class="password-toggle-btn" data-target="newPassword24">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
                         </div>
                     </fieldset>
 
@@ -284,7 +277,12 @@
                         <!-- Nueva Contraseña 5GHz -->
                         <div class="form-group">
                             <label for="newPassword5">Nueva Contraseña (dejar en blanco para no cambiar)</label>
-                            <input type="password" id="newPassword5" class="form-control" placeholder="Mínimo 8 caracteres">
+                            <div class="password-display-group">
+                                <input type="password" id="newPassword5" class="form-control" placeholder="Mínimo 8 caracteres">
+                                <button type="button" class="password-toggle-btn" data-target="newPassword5">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
                         </div>
                     </fieldset>
 

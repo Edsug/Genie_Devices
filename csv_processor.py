@@ -1,251 +1,135 @@
+# csv_processor.py - VERSIÓN FINAL, COMPLETA Y ROBUSTA
+
 import pandas as pd
 import hashlib
 import logging
-from datetime import datetime, timedelta
-from typing import Dict
-from models import db, CSVImportHistory
-from db_services import DatabaseService
-import time
+from flask import jsonify
 
+# Asumimos que estas funciones y clases están disponibles desde tus otros archivos
+from db_services import DatabaseService
+from models import db, CSVImportHistory
+from models import encrypt_data # Importar la función de cifrado
+
+# Configurar logging
 logger = logging.getLogger(__name__)
 
+def calculate_file_hash(file_stream):
+    """Calcula el hash SHA-256 de un archivo de forma segura para la memoria."""
+    hash_sha256 = hashlib.sha256()
+    # Leer el archivo en bloques para no agotar la memoria con archivos grandes
+    for chunk in iter(lambda: file_stream.read(4096), b""):
+        hash_sha256.update(chunk)
+    # Devolver el cursor al inicio del archivo para que pandas pueda leerlo
+    file_stream.seek(0)
+    return hash_sha256.hexdigest()
+
 def normalize_mac(mac):
-    if not mac:
+    """Normaliza una dirección MAC a un formato estándar (XX:XX:XX:XX:XX:XX)."""
+    if not isinstance(mac, str):
         return None
-    mac = mac.strip().upper().replace('-', ':').replace(' ', '')
-    if len(mac) == 12 and ':' not in mac:
-        mac = ':'.join(mac[i:i+2] for i in range(0, 12, 2))
-    return mac
+    
+    mac = mac.strip().upper().replace("-", "").replace(":", "").replace(" ", "")
+    if len(mac) != 12:
+        return None # Formato inválido
+    
+    return ":".join(mac[i:i+2] for i in range(0, 12, 2))
 
 class CSVProcessor:
-    """Procesador CSV optimizado para configuración masiva de dispositivos"""
+    def __init__(self, file_stream, filename, user_id):
+        self.file_stream = file_stream
+        self.filename = filename
+        self.user_id = user_id
+        # Inicializar estadísticas
+        self.stats = {
+            'processed': 0,
+            'updated': 0,
+            'no_change': 0,
+            'failed': 0
+        }
+        self.file_hash = calculate_file_hash(self.file_stream)
 
-    def __init__(self):
-        self.GENIEACS_URL = "http://192.168.0.237:7557"
-        self.GENIEACS_USERNAME = "admin"
-        self.GENIEACS_PASSWORD = "admin"
-        self._unconfigured_cache = None
-        self._cache_expiry = None
+    def process(self):
+        """
+        Procesa el archivo CSV, valida, actualiza la base de datos y registra el historial.
+        """
+        # 1. Verificar si el hash del archivo ya existe en la base de datos
+        if DatabaseService.check_csv_hash_exists(self.file_hash):
+            message = "Este archivo CSV ya ha sido procesado anteriormente. No se realizaron cambios."
+            logger.warning(message)
+            return jsonify({'success': False, 'message': message}), 409
 
-    def get_file_hash(self, file_path: str) -> str:
-        hash_sha256 = hashlib.sha256()
         try:
-            with open(file_path, "rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_sha256.update(chunk)
-            return hash_sha256.hexdigest()
-        except Exception as e:
-            logger.error(f"Error calculando hash: {e}")
-            return ""
-
-    def is_file_already_processed(self, file_hash: str) -> bool:
-        return CSVImportHistory.query.filter(
-            (CSVImportHistory.file_hash == file_hash) &
-            (CSVImportHistory.status == 'completed')
-        ).first() is not None
-
-    def get_unconfigured_devices_macs(self, force_refresh: bool = False) -> Dict[str, str]:
-        if not force_refresh and self._unconfigured_cache and self._cache_expiry:
-            if datetime.utcnow() < self._cache_expiry:
-                logger.info(f"📦 Usando cache: {len(self._unconfigured_cache)} dispositivos no configurados")
-                return self._unconfigured_cache
-        try:
-            logger.info("🔍 Obteniendo dispositivos NO configurados...")
-            start_time = time.time()
-            unconfigured_devices = DatabaseService.get_unconfigured_devices()
-            mac_to_serial = {}
-            for device in unconfigured_devices:
-                if device['mac']:
-                    normalized_mac = normalize_mac(device['mac'])
-                    mac_to_serial[normalized_mac] = device['serial_number']
-            self._unconfigured_cache = mac_to_serial
-            self._cache_expiry = datetime.utcnow() + timedelta(minutes=5)
-            processing_time = time.time() - start_time
-            logger.info(f"✅ Dispositivos no configurados obtenidos: {len(mac_to_serial)} en {processing_time:.2f}s")
-            return mac_to_serial
-        except Exception as e:
-            logger.error(f"Error obteniendo dispositivos no configurados: {e}")
-            return self._unconfigured_cache or {}
-
-    def process_csv_file(self, file_path: str, user_id: int, force_reimport: bool = False) -> Dict:
-        start_time = datetime.utcnow()
-        file_hash = self.get_file_hash(file_path)
-        if not file_hash:
-            return {'success': False, 'message': 'Error calculando hash del archivo'}
-        if not force_reimport and self.is_file_already_processed(file_hash):
-            return {
-                'success': False,
-                'message': 'Este archivo ya fue procesado anteriormente',
-                'code': 'ALREADY_PROCESSED'
-            }
-        import_record = CSVImportHistory(
-            file_name=file_path.split('/')[-1],
-            file_type='unified_csv',
-            file_hash=file_hash,
-            user_id=user_id,
-            status='processing'
-        )
-        db.session.add(import_record)
-        db.session.commit()
-        try:
-            result = self._process_unified_csv_file(file_path, import_record.id, user_id)
-            processing_time = (datetime.utcnow() - start_time).total_seconds()
-            import_record.records_processed = result.get('processed', 0)
-            import_record.devices_matched = result.get('matched', 0)
-            import_record.devices_configured = result.get('configured', 0)
-            import_record.devices_updated = result.get('updated', 0)
-            import_record.devices_skipped = result.get('skipped', 0)
-            import_record.status = 'completed' if result['success'] else 'failed'
-            import_record.error_message = result.get('error_message')
-            import_record.processing_time = int(processing_time)
-            db.session.commit()
-            self._unconfigured_cache = None
-            logger.info(f"CSV procesado: {result}")
-            return result
-        except Exception as e:
-            import_record.status = 'failed'
-            import_record.error_message = str(e)
-            db.session.commit()
-            logger.error(f"Error procesando CSV: {e}")
-            return {
-                'success': False,
-                'message': f'Error procesando archivo: {str(e)}',
-                'error': str(e)
-            }
-
-    def _process_unified_csv_file(self, file_path: str, import_id: int, user_id: int) -> Dict:
-        try:
-            df = pd.read_csv(file_path)
-            required_columns = [
-                'mac_address', 'contract_number', 'customer_name',
-                'ssid_2_4ghz', 'password_2_4ghz', 'ssid_5ghz', 'password_5ghz'
-            ]
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            if missing_columns:
-                return {'success': False, 'message': f'Columnas faltantes: {", ".join(missing_columns)}'}
-
-            logger.info(f"📊 Procesando {len(df)} registros del CSV unificado...")
-            unconfigured_macs = self.get_unconfigured_devices_macs()
-            if not unconfigured_macs:
-                return {
-                    'success': True,
-                    'processed': len(df),
-                    'matched': 0,
-                    'configured': 0,
-                    'updated': 0,
-                    'skipped': len(df),
-                    'message': 'No hay dispositivos no configurados disponibles'
-                }
-            logger.info(f"🎯 Dispositivos no configurados disponibles: {len(unconfigured_macs)}")
-            processed = matched = configured = updated = skipped = 0
+            # Usar 'dtype=str' para evitar que pandas interprete incorrectamente los datos
+            df = pd.read_csv(self.file_stream, dtype=str).fillna('')
+            self.stats['processed'] = len(df)
 
             for index, row in df.iterrows():
                 try:
-                    mac_raw = str(row['mac_address']).strip() if pd.notna(row['mac_address']) else ''
-                    mac = normalize_mac(mac_raw)
-                    contract = str(row['contract_number']).strip() if pd.notna(row['contract_number']) else ''
-                    customer_name = str(row['customer_name']).strip() if pd.notna(row['customer_name']) else ''
-                    ssid_24 = str(row['ssid_2_4ghz']).strip() if pd.notna(row['ssid_2_4ghz']) else ''
-                    password_24 = str(row['password_2_4ghz']).strip() if pd.notna(row['password_2_4ghz']) else ''
-                    ssid_5 = str(row['ssid_5ghz']).strip() if pd.notna(row['ssid_5ghz']) else ''
-                    password_5 = str(row['password_5ghz']).strip() if pd.notna(row['password_5ghz']) else ''
+                    mac_address_raw = row.get('mac_address')
+                    mac_address_norm = normalize_mac(mac_address_raw)
 
-                    if not mac or not contract:
-                        skipped += 1
+                    if not mac_address_norm:
+                        logger.warning(f"Fila {index+2}: MAC inválida o ausente ('{mac_address_raw}'), omitiendo.")
+                        self.stats['failed'] += 1
                         continue
 
-                    if not self._is_valid_ssid(ssid_24) or not self._is_valid_password(password_24):
-                        logger.warning(f"⚠️ Red 2.4GHz inválida para MAC {mac}")
-                        skipped += 1
-                        continue
+                    # Preparar los datos del cliente y de las redes WiFi del CSV
+                    customer_data = {
+                        'contract_number': row.get('contract_number'),
+                        'customer_name': row.get('customer_name')
+                    }
+                    wifi_data = [
+                        {
+                            'band': '2.4GHz',
+                            'ssid': row.get('ssid_2_4ghz'),
+                            # ¡Importante! Cifrar la contraseña antes de guardarla
+                            'password': encrypt_data(row.get('password_2_4ghz')) if row.get('password_2_4ghz') else None
+                        },
+                        {
+                            'band': '5GHz',
+                            'ssid': row.get('ssid_5ghz'),
+                            'password': encrypt_data(row.get('password_5ghz')) if row.get('password_5ghz') else None
+                        }
+                    ]
+                    
+                    # Llamar al método del servicio que contiene la lógica de actualización
+                    result = DatabaseService.update_device_from_csv(
+                        mac_address=mac_address_norm,
+                        customer_data=customer_data,
+                        wifi_networks_data=wifi_data,
+                        user_id=self.user_id
+                    )
 
-                    if not self._is_valid_ssid(ssid_5) or not self._is_valid_password(password_5):
-                        logger.warning(f"⚠️ Red 5GHz inválida para MAC {mac}")
-                        skipped += 1
-                        continue
+                    # Actualizar estadísticas según el resultado
+                    if result == 'updated':
+                        self.stats['updated'] += 1
+                    elif result == 'no_change':
+                        self.stats['no_change'] += 1
+                    else: # 'failed'
+                        self.stats['failed'] += 1
 
-                    processed += 1
+                except Exception as row_error:
+                    logger.error(f"Fila {index+2}: Error procesando la fila: {row_error}")
+                    self.stats['failed'] += 1
+            
+            # 3. Registrar el resultado final de la importación
+            status = 'Completed with errors' if self.stats['failed'] > 0 else 'Completed'
+            DatabaseService.log_csv_import(
+                filename=self.filename, user_id=self.user_id, file_hash=self.file_hash,
+                stats=self.stats, status=status
+            )
+            message = "Procesamiento de CSV completado."
+            logger.info(f"{message} - Estadísticas: {self.stats}")
+            return jsonify({'success': True, 'message': message, 'stats': self.stats}), 200
 
-                    if mac in unconfigured_macs:
-                        matched += 1
-                        success, message = DatabaseService.configure_device_from_csv(
-                            mac, contract, customer_name, ssid_24, password_24, ssid_5, password_5, user_id
-                        )
-                        if success:
-                            configured += 1
-                            logger.info(f"✅ Configurado: {mac} - {contract} - {customer_name}")
-                        else:
-                            logger.warning(f"⚠️ Error configurando {mac}: {message}")
-                            skipped += 1
-                    else:
-                        skipped += 1
-
-                    if processed % 50 == 0:
-                        db.session.commit()
-                        progress = (processed / len(df) * 100)
-                        logger.info(f"📈 Progreso: {processed}/{len(df)} ({progress:.1f}%) - Configurados: {configured}")
-
-                except Exception as e:
-                    logger.error(f"Error procesando fila {index}: {e}")
-                    skipped += 1
-                    continue
-
-            db.session.commit()
-            coverage_rate = (matched / len(unconfigured_macs) * 100) if unconfigured_macs else 0
-
-            logger.info("=" * 60)
-            logger.info("✅ PROCESAMIENTO CSV UNIFICADO COMPLETADO")
-            logger.info(f"📊 Registros procesados: {processed}")
-            logger.info(f"🎯 Dispositivos coincidentes: {matched}")
-            logger.info(f"⚙️ Dispositivos configurados: {configured}")
-            logger.info(f"📈 Tasa de configuración: {coverage_rate:.1f}%")
-            logger.info("=" * 60)
-
-            return {
-                'success': True,
-                'processed': processed,
-                'matched': matched,
-                'configured': configured,
-                'updated': updated,
-                'skipped': skipped,
-                'coverage_percentage': round(coverage_rate, 2),
-                'message': f'Procesado: {configured} dispositivos configurados de {matched} coincidencias por MAC'
-            }
         except Exception as e:
-            logger.error(f"Error en _process_unified_csv_file: {e}")
-            return {'success': False, 'message': f'Error procesando CSV unificado: {str(e)}', 'error': str(e)}
+            # 4. Registrar el fallo catastrófico si el archivo no se puede leer
+            error_message = f"Error fatal al leer el archivo CSV: {e}"
+            logger.error(error_message)
+            self.stats['failed'] = self.stats.get('processed', len(df) if 'df' in locals() else 0)
+            DatabaseService.log_csv_import(
+                filename=self.filename, user_id=self.user_id, file_hash=self.file_hash,
+                stats=self.stats, status='Failed', error_message=error_message
+            )
+            return jsonify({'success': False, 'message': error_message}), 500
 
-    def _is_valid_ssid(self, ssid: str) -> bool:
-        if not ssid or len(ssid.strip()) == 0:
-            return False
-        ssid = ssid.strip()
-        invalid_patterns = ['**', '***', '....', '----', '____', 'default', 'hidden']
-        ssid_lower = ssid.lower()
-        for pattern in invalid_patterns:
-            if pattern in ssid_lower:
-                return False
-        return 1 <= len(ssid) <= 32
-
-    def _is_valid_password(self, password: str) -> bool:
-        if not password:
-            return False
-        password = password.strip()
-        return 8 <= len(password) <= 63
-
-    def get_import_statistics(self, days: int = 30) -> Dict:
-        try:
-            since_date = datetime.utcnow() - timedelta(days=days)
-            imports = CSVImportHistory.query.filter(
-                CSVImportHistory.created_at >= since_date
-            ).all()
-            stats = {
-                'total_imports': len(imports),
-                'successful_imports': len([i for i in imports if i.status == 'completed']),
-                'failed_imports': len([i for i in imports if i.status == 'failed']),
-                'total_records_processed': sum(i.records_processed or 0 for i in imports),
-                'total_devices_configured': sum(i.devices_configured or 0 for i in imports)
-            }
-            return stats
-        except Exception as e:
-            logger.error(f"Error obteniendo estadísticas: {e}")
-            return {}

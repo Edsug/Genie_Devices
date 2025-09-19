@@ -1,17 +1,19 @@
 
-from flask import Flask, abort, jsonify, request, render_template, redirect, url_for, session, send_from_directory
+from flask import Flask, abort, jsonify, request, render_template, redirect, url_for, session, send_from_directory, g
 from flask_cors import CORS
 import requests
 import json
 import os
 import time
-from datetime import datetime
+import threading
+from datetime import datetime, timezone, timedelta
 from urllib.parse import unquote, quote
 import logging
 import hashlib
 from functools import wraps
 import re
 from werkzeug.utils import secure_filename
+from csv_processor import CSVProcessor
 
 # Importar modelos y servicios corregidos
 from config_db import SQLALCHEMY_DATABASE_URI, SQLALCHEMY_TRACK_MODIFICATIONS, SQLALCHEMY_ENGINE_OPTIONS
@@ -19,6 +21,8 @@ from config_db import SQLALCHEMY_DATABASE_URI, SQLALCHEMY_TRACK_MODIFICATIONS, S
 from models import db, User, Device, CustomerInfo, WifiNetwork, ChangeHistory, CSVImportHistory
 from db_services import DatabaseService
 from csv_processor import CSVProcessor
+
+
 
 # Configuración de la aplicación
 app = Flask(
@@ -48,11 +52,14 @@ for folder in ['uploads', 'data', 'logs', 'backups']:
 # Inicializar extensiones
 db.init_app(app)
 
+
+
 # CREDENCIALES GENIEACS
 GENIEACS_URL = "http://192.168.0.237:7557"
 GENIEACS_USERNAME = "admin"
 GENIEACS_PASSWORD = "admin"
 
+app.config['GENIEACS_URL'] = GENIEACS_URL
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -231,6 +238,8 @@ def get_current_user():
                 'role_level': role_info['level']
             }
     return None
+
+
 
 # Funciones de GenieACS OPTIMIZADAS
 def get_devices_from_genieacs():
@@ -517,58 +526,18 @@ def is_5ghz_network(ssid, wlan_index):
         return False
     return wlan_index in ["5", "6"]
 
-def load_devices_from_genieacs():
-    """CARGAR DISPOSITIVOS CON SINCRONIZACIÓN A BASE DE DATOS"""
-    logger.info("🔄 Sincronizando dispositivos desde GenieACS...")
+def refresh_genie_object(serial_number, parameter_path):
+    """Crea una tarea en GenieACS para refrescar un parámetro del dispositivo."""
     try:
-        raw_devices = get_devices_from_genieacs()
-        if not raw_devices:
-            logger.error("❌ No se pudieron obtener dispositivos")
-            return []
-        
-        logger.info(f"📋 Dispositivos encontrados: {len(raw_devices)}")
-        
-        # Procesar y sincronizar dispositivos
-        processed = 0
-        for device in raw_devices:
-            try:
-                device_info = extract_device_info(device)
-                product_class = device_info["product_class"]
-                
-                if product_class not in DEVICE_KNOWLEDGE_BASE:
-                    continue
-                
-                wifi_networks, ip, mac, _ = extract_wifi_networks(device_info)
-                
-                if wifi_networks and ip and ip != "0.0.0.0":
-                    # Sincronizar con base de datos
-                    device_data = {
-                        'serial_number': device_info["serial_number"],
-                        'mac': mac,
-                        'product_class': product_class,
-                        'software_version': device_info["software_version"],
-                        'hardware_version': device_info["hardware_version"],
-                        'ip': ip,
-                        'last_inform': device_info["last_inform"],
-                        'tags': device_info["tags"],
-                        'wifi_networks': wifi_networks
-                    }
-                    
-                    DatabaseService.store_or_update_device(device_data)
-                    processed += 1
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ Error procesando dispositivo: {e}")
-                continue
-        
-        logger.info(f"✅ Dispositivos sincronizados: {processed}")
-        
-        # Obtener dispositivos con estado
-        return DatabaseService.get_all_devices_with_status()
-        
+        url = f"{GENIEACS_URL}/devices/{quote(serial_number)}/tasks"
+        payload = {"name": "refreshObject", "objectName": parameter_path}
+        response = requests.post(url, json=payload, auth=(GENIEACS_USERNAME, GENIEACS_PASSWORD), timeout=5)
+        if response.status_code == 200:
+            logger.info(f"✅ Tarea 'refreshObject' para {serial_number} en '{parameter_path}' creada.")
+            return True
     except Exception as e:
-        logger.error(f"❌ Error sincronizando dispositivos: {e}")
-        return []
+        logger.warning(f"⚠️ No se pudo crear la tarea 'refreshObject': {e}")
+    return False
 
 def paginate_devices(devices, page, per_page):
     """Función de paginación"""
@@ -587,7 +556,75 @@ def paginate_devices(devices, page, per_page):
         'next_page': page + 1 if end < total else None
     }
 
-# RUTAS DE LA APLICACIÓN
+last_sync_time = None
+SYNC_INTERVAL = timedelta(minutes=10)
+is_syncing_lock = threading.Lock()
+initial_sync_started = False # Bandera para controlar la primera ejecución
+
+def sync_devices_job():
+    """
+    Trabajo de sincronización que se ejecuta en segundo plano.
+    """
+    global last_sync_time
+    
+    if not is_syncing_lock.acquire(blocking=False):
+        logger.info("Sync job: Sincronización ya en progreso. Omitiendo.")
+        return
+
+    logger.info("🔄 Iniciando trabajo de sincronización con GenieACS...")
+    try:
+        genie_url_base = app.config.get('GENIEACS_URL')
+        if not genie_url_base:
+            logger.error("❌ GENIEACS_URL no está configurada. Abortando.")
+            return
+
+        genie_api_url = f"{genie_url_base}/devices/"
+        params = { "projection": "_id,DeviceID.ProductClass,InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.MACAddress,InternetGatewayDevice.LANIPAddress,lastInform" }
+        
+        response = requests.get(genie_api_url, params=params, timeout=30)
+        response.raise_for_status()
+        all_devices_data = response.json()
+        
+        if all_devices_data:
+            with app.app_context():
+                new, updated = DatabaseService.sync_devices_in_bulk(all_devices_data)
+            logger.info(f"✅ Sincronización completada: {new} nuevos, {updated} actualizados.")
+            
+            # --- ¡LA CORRECCIÓN DEL ERROR! ---
+            # Usamos datetime.utcnow() que es compatible con tu versión de Python.
+            last_sync_time = datetime.now(timezone.utc)
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Error de red al conectar con GenieACS: {e}")
+    except Exception as e:
+        logger.error(f"❌ Error mayor durante el trabajo de sincronización: {e}", exc_info=True)
+    finally:
+        is_syncing_lock.release()
+
+@app.before_request
+def check_and_init_sync():
+    """
+    Se ejecuta antes de CADA petición, pero la bandera previene ejecuciones múltiples.
+    """
+    global initial_sync_started
+    if not initial_sync_started:
+        logger.info("🚀 Primera carga de la aplicación detectada. Lanzando sincronización inicial.")
+        threading.Thread(target=sync_devices_job).start()
+        initial_sync_started = True
+
+# --- RUTA PARA REFRESCAR MANUALMENTE (Opcional pero recomendado) ---
+@app.route('/api/refresh-sync', methods=['POST'])
+@login_required
+def refresh_sync():
+    """
+    Una ruta que el frontend puede llamar para forzar una nueva sincronización.
+    """
+    if is_syncing_lock.locked():
+        return jsonify({'success': False, 'message': 'La sincronización ya está en progreso.'}), 429
+    
+    logger.info(f"🔄 Solicitud de refresco manual recibida.")
+    threading.Thread(target=sync_devices_job).start()
+    return jsonify({'success': True, 'message': 'Se ha iniciado una nueva sincronización en segundo plano.'})
 
 @app.route('/api/user/theme')
 @login_required
@@ -611,55 +648,42 @@ def index():
 @login_required
 def get_devices():
     """OBTENER DISPOSITIVOS CON PAGINACIÓN Y FILTROS"""
-    global device_cache, cache_timestamp
-    
+
     try:
-        current_time = time.time()
-        # Usar cache si existe y no ha expirado (5 minutos)
-        if device_cache and (current_time - cache_timestamp) < CACHE_DURATION:
-            logger.info(f"✅ Usando cache (edad: {int(current_time - cache_timestamp)}s)")
-            all_devices = device_cache['all_devices']
-        else:
-            # Cargar dispositivos frescos
-            logger.info("🔄 Cache expirado, sincronizando dispositivos...")
-            all_devices = load_devices_from_genieacs()
-            # Guardar en cache
-            device_cache = {'all_devices': all_devices}
-            cache_timestamp = current_time
-            logger.info(f"✅ Cache actualizado con {len(all_devices)} dispositivos")
+        # Obtener todos los dispositivos de la BD
+        all_devices = DatabaseService.get_all_devices_with_status()
         
-        # Separar por estado de configuración
+        # Separar dispositivos configurados y no configurados
         configured_devices = [d for d in all_devices if d.get('configured', False)]
         unconfigured_devices = [d for d in all_devices if not d.get('configured', False)]
-        
-        # Parámetros de paginación
+
+        # Obtener parámetros de paginación
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', DEVICES_PER_PAGE))
         filter_type = request.args.get('filter', 'all')
         search_query = request.args.get('search', '').strip().lower()
-        
-        # Aplicar filtro
+
+        # Aplicar filtros
         if filter_type == 'configured':
             filtered_devices = configured_devices
         elif filter_type == 'unconfigured':
             filtered_devices = unconfigured_devices
         else:
-            # Mostrar no configurados primero, luego configurados
-            filtered_devices = unconfigured_devices + configured_devices
-        
-        # Aplicar búsqueda
+            filtered_devices = all_devices
+
+        # Aplicar búsqueda si existe
         if search_query:
             filtered_devices = [
                 d for d in filtered_devices
-                if search_query in d['serial_number'].lower() or
-                   search_query in d['ip'].lower() or
-                   search_query in d['product_class'].lower() or
-                   search_query in (d['mac'] or '').lower() or
-                   (d.get('contract_number') and search_query in d['contract_number'].lower()) or
-                   (d.get('customer_name') and search_query in d['customer_name'].lower())
+                if search_query in d.get('serial_number','').lower() or \
+                   search_query in d.get('ip','').lower() or \
+                   search_query in d.get('product_class','').lower() or \
+                   search_query in (d.get('mac') or '').lower() or \
+                   (d.get('contract_number') and search_query in d.get('contract_number').lower()) or \
+                   (d.get('customer_name') and search_query in d.get('customer_name').lower())
             ]
-        
-        # Paginar
+
+        # Aplicar paginación
         pagination = paginate_devices(filtered_devices, page, per_page)
         
         return jsonify({
@@ -680,55 +704,51 @@ def get_devices():
                 'configured': len(configured_devices),
                 'unconfigured': len(unconfigured_devices),
                 'filtered': pagination['total']
-            },
-            'cache_age': int(current_time - cache_timestamp),
-            'last_update': datetime.now().isoformat()
+            }
         })
-        
     except Exception as e:
-        logger.error(f"❌ Error obteniendo dispositivos: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        logger.error(f"❌ Error obteniendo dispositivos desde la base de datos: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Error al cargar dispositivos desde la base de datos.'}), 500
+# Reemplaza tu función get_device_info actual con esta versión corregida
 
-@app.route('/api/device-info/<serial_number>')
+@app.route('/api/device-info/<path:serial_number>')
 @login_required
 def get_device_info(serial_number):
-    """Obtener información detallada de un dispositivo específico"""
+    """Obtener info detallada, priorizando la base de datos local para la coherencia."""
     try:
-        # Buscar en cache primero
-        global device_cache
-        if device_cache and 'all_devices' in device_cache:
-            device_found = None
-            for device in device_cache['all_devices']:
-                if device['serial_number'] == serial_number:
-                    device_found = device
-                    break
-            
-            if device_found:
-                return jsonify({
-                    'success': True,
-                    'device': device_found
-                })
-        
-        # Si no está en cache, buscar en base de datos
+        # Primero, obtén el dispositivo y sus redes de tu base de datos local
         device = DatabaseService.get_device_by_serial(serial_number)
         if not device:
-            return jsonify({'success': False, 'message': 'Dispositivo no encontrado'}), 404
-        
-        response = {
+            return jsonify({'success': False, 'message': 'Dispositivo no encontrado localmente'}), 404
+
+        wifi_networks_local = WifiNetwork.query.filter_by(device_id=device.id).all()
+
+        wifi_data = []
+        for net in wifi_networks_local:
+            wifi_data.append({
+                "band": net.band,
+                "ssid": net.ssid_configured or net.ssid_current, # Prioriza el SSID configurado
+                "password": net.password or "No disponible" # <--- ¡AQUÍ ESTÁ LA SOLUCIÓN!
+            })
+
+        # Ensamblar la respuesta final con datos locales
+        full_device_data = {
             'serial_number': device.serial_number,
             'mac_address': device.mac_address,
-            'ip_address': device.ip_address,
             'product_class': device.product_class,
             'software_version': device.software_version,
             'hardware_version': device.hardware_version,
+            'ip_address': device.ip_address,
             'last_inform': device.last_inform,
+            'tags': json.loads(device.tags) if device.tags else [],
+            'wifi_networks': wifi_data
         }
-        
-        return jsonify({'success': True, 'device': response})
-        
+        return jsonify({'success': True, 'device': full_device_data})
+
     except Exception as e:
-        logger.error(f"❌ Error obteniendo info del dispositivo {serial_number}: {e}")
+        logger.error(f"❌ Error obteniendo info local del dispositivo {serial_number}: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/devices/refresh', methods=['POST'])
 @login_required
@@ -740,116 +760,103 @@ def refresh_devices():
     logger.info("🔄 Cache limpiado manualmente")
     return get_devices()
 
+# Reemplaza tu función update_ssid actual con esta
 @app.route('/api/device/update-ssid', methods=['POST'])
 @login_required
-@role_required(2)  # Solo NOC e Informática
+@role_required(2)
 def update_ssid():
     data = request.get_json()
     serial_number = data.get('serial_number')
     new_ssid = data.get('ssid')
-    band = data.get('band', '2.4GHz')  # Banda por defecto 2.4GHz
-    
-    if not serial_number or not new_ssid:
+    band = data.get('band')
+    user_id = session.get('user_id') # Obtener el ID del usuario de la sesión
+
+    if not all([serial_number, new_ssid, band]):
         return jsonify({'success': False, 'message': 'Datos incompletos'}), 400
-    
-    # Validación básica de SSID
-    if not is_valid_ssid(new_ssid):
-        return jsonify({'success': False, 'message': 'SSID inválido'}), 400
-    
+
+    # Actualizar la base de datos local INMEDIATAMENTE
+    if not DatabaseService.update_device_ssid(serial_number, band, new_ssid, user_id):
+        return jsonify({'success': False, 'message': 'Error al actualizar la base de datos local'}), 500
+
+    # Después, enviar la tarea a GenieACS (si falla, el cambio local ya está hecho)
     try:
         product_class = DatabaseService.get_product_class_by_serial(serial_number)
         if product_class not in DEVICE_KNOWLEDGE_BASE:
-            return jsonify({'success': False, 'message': 'Producto no soportado'}), 400
+            return jsonify({'success': True, 'message': 'Cambio guardado localmente, pero producto no soportado por GenieACS.'})
+
+        band_config = DEVICE_KNOWLEDGE_BASE[product_class].get(band, {})
+        ssid_param = band_config.get('ssid_param')
+
+        if ssid_param:
+            url = f"{GENIEACS_URL}/devices/{quote(serial_number)}/tasks"
+            payload = {"name": "setParameterValues", "parameterValues": [[ssid_param, new_ssid, "xsd:string"]]}
+            response = requests.post(url, json=payload, auth=(GENIEACS_USERNAME, GENIEACS_PASSWORD), timeout=15)
+            
+            if response.status_code in [200, 202]:
+                logger.info(f"Tarea de SSID para {serial_number} aceptada por GenieACS.")
+                refresh_genie_object(serial_number, ssid_param)
+            else:
+                logger.warning(f"GenieACS rechazó tarea de SSID: {response.text}")
         
-        band_key = band if band in DEVICE_KNOWLEDGE_BASE[product_class] else None
-        if not band_key:
-            # Para dispositivos IGD con claves primarias/alternas
-            if product_class == 'IGD':
-                # Ejemplo para IGD, puede extenderse conforme a base de conocimiento
-                if band == '2.4GHz':
-                    band_key = '2.4GHz_primary'
-                elif band == '5GHz':
-                    band_key = '5GHz_primary'
-        
-        if not band_key or band_key not in DEVICE_KNOWLEDGE_BASE[product_class]:
-            return jsonify({'success': False, 'message': 'Banda no soportada para este dispositivo'}), 400
-        
-        ssid_param = DEVICE_KNOWLEDGE_BASE[product_class][band_key]['ssid_param']
-        url = f"{GENIEACS_URL}/devices/{serial_number}/config/{quote(ssid_param)}"
-        auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
-        payload = {"value": new_ssid}
-        
-        response = requests.put(url, json=payload, auth=auth, timeout=15)
-        response.raise_for_status()
-        
-        # Actualizar base de datos local (solo SSID)
-        DatabaseService.update_device_ssid(serial_number, band_key, new_ssid)
-        
-        # Limpiar cache
+        # Limpiar caché para que la lista principal se actualice
         global device_cache, cache_timestamp
         device_cache = {}
         cache_timestamp = 0
-        
-        return jsonify({'success': True, 'message': 'SSID actualizado correctamente'})
-        
-    except Exception as e:
-        logger.error(f"Error actualizando SSID para {serial_number}: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
 
+        return jsonify({'success': True, 'message': 'Cambio guardado localmente y tarea enviada a GenieACS.'})
+    except Exception as e:
+        logger.error(f"Error enviando tarea de SSID a GenieACS para {serial_number}: {e}")
+        return jsonify({'success': True, 'message': f'Cambio guardado localmente, pero falló el envío a GenieACS: {e}'})
+    
 @app.route('/api/device/update-password', methods=['POST'])
 @login_required
-@role_required(2)  # Solo NOC e Informática
+@role_required(2)
 def update_password():
     data = request.get_json()
     serial_number = data.get('serial_number')
     new_password = data.get('password')
-    band = data.get('band', '2.4GHz')  # Banda por defecto 2.4GHz
-    
-    if not serial_number or not new_password:
+    band = data.get('band')
+    user_id = session.get('user_id')
+
+    if not all([serial_number, new_password, band]):
         return jsonify({'success': False, 'message': 'Datos incompletos'}), 400
     
-    # Validar contraseña segura
     if not is_valid_password(new_password):
-        return jsonify({'success': False, 'message': 'Contraseña inválida (debe tener entre 8 y 63 caracteres)'}), 400
-    
+        return jsonify({'success': False, 'message': 'Contraseña inválida'}), 400
+
+    # Actualizar la base de datos local INMEDIATAMENTE
+    if not DatabaseService.update_device_password(serial_number, band, new_password, user_id):
+        return jsonify({'success': False, 'message': 'Error al actualizar la base de datos local'}), 500
+
+    # Después, enviar la tarea a GenieACS
     try:
         product_class = DatabaseService.get_product_class_by_serial(serial_number)
         if product_class not in DEVICE_KNOWLEDGE_BASE:
-            return jsonify({'success': False, 'message': 'Producto no soportado'}), 400
+            return jsonify({'success': True, 'message': 'Cambio guardado localmente, pero producto no soportado por GenieACS.'})
+
+        band_config = DEVICE_KNOWLEDGE_BASE[product_class].get(band, {})
+        password_param = band_config.get('password_param')
         
-        band_key = band if band in DEVICE_KNOWLEDGE_BASE[product_class] else None
-        if not band_key:
-            # Para dispositivos IGD gestionar bandas primarias
-            if product_class == 'IGD':
-                if band == '2.4GHz':
-                    band_key = '2.4GHz_primary'
-                elif band == '5GHz':
-                    band_key = '5GHz_primary'
+        if password_param:
+            url = f"{GENIEACS_URL}/devices/{quote(serial_number)}/tasks"
+            payload = {"name": "setParameterValues", "parameterValues": [[password_param, new_password, "xsd:string"]]}
+            response = requests.post(url, json=payload, auth=(GENIEACS_USERNAME, GENIEACS_PASSWORD), timeout=15)
+            
+            if response.status_code in [200, 202]:
+                logger.info(f"Tarea de contraseña para {serial_number} aceptada por GenieACS.")
+                refresh_genie_object(serial_number, password_param)
+            else:
+                logger.warning(f"GenieACS rechazó tarea de contraseña: {response.text}")
         
-        if not band_key or band_key not in DEVICE_KNOWLEDGE_BASE[product_class]:
-            return jsonify({'success': False, 'message': 'Banda no soportada para este dispositivo'}), 400
-        
-        password_param = DEVICE_KNOWLEDGE_BASE[product_class][band_key]['password_param']
-        url = f"{GENIEACS_URL}/devices/{serial_number}/config/{quote(password_param)}"
-        auth = (GENIEACS_USERNAME, GENIEACS_PASSWORD) if GENIEACS_USERNAME else None
-        payload = {"value": new_password}
-        
-        response = requests.put(url, json=payload, auth=auth, timeout=15)
-        response.raise_for_status()
-        
-        # Actualizar base de datos local para mantener sincronía
-        DatabaseService.update_device_password(serial_number, band_key, new_password)
-        
-        # Limpiar cache
         global device_cache, cache_timestamp
         device_cache = {}
         cache_timestamp = 0
-        
-        return jsonify({'success': True, 'message': 'Contraseña actualizada correctamente'})
-        
+
+        return jsonify({'success': True, 'message': 'Cambio guardado localmente y tarea enviada a GenieACS.'})
     except Exception as e:
-        logger.error(f"Error actualizando contraseña para {serial_number}: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        logger.error(f"Error enviando tarea de contraseña a GenieACS para {serial_number}: {e}")
+        return jsonify({'success': True, 'message': f'Cambio guardado localmente, pero falló el envío a GenieACS: {e}'})
+
 
 # CORRECCIÓN: Cambiar la ruta de LAN hosts para evitar error 405
 @app.route('/api/device/<serial_number>/lan-hosts', methods=['GET'])
@@ -893,52 +900,44 @@ def get_lan_hosts(serial_number):
 @login_required
 @role_required(2)  # Solo NOC e Informática
 def upload_csv():
-    """Subir y procesar CSV unificado"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'message': 'No se proporcionó archivo'}), 400
-        
+    """
+    Subir y procesar CSV unificado.
+    Esta función recibe el archivo desde la UI y lo procesa.
+    """
+    # 1. Validar que el archivo viene en la solicitud
+    if 'file' not in request.files:
+        # Tu script.js original podría estar usando 'file' como clave, se ajusta aquí
+        if 'csv_file' not in request.files:
+            return jsonify({'success': False, 'message': 'No se encontró el archivo en la solicitud (clave: file o csv_file)'}), 400
+        file = request.files['csv_file']
+    else:
         file = request.files['file']
-        if file.filename == '':
-            return jsonify({'success': False, 'message': 'No se seleccionó archivo'}), 400
-        
-        if not allowed_file(file.filename):
-            return jsonify({'success': False, 'message': 'Tipo de archivo no permitido'}), 400
-        
-        # Guardar archivo temporalmente
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{timestamp}_{filename}"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        
-        # Procesar CSV
-        processor = CSVProcessor()
-        force_reimport = request.form.get('force_reimport', 'false').lower() == 'true'
-        result = processor.process_csv_file(
-            filepath,
-            session['user_id'],
-            force_reimport=force_reimport
-        )
-        
-        # Limpiar cache si fue exitoso
-        if result.get('success'):
-            global device_cache, cache_timestamp
-            device_cache = {}
-            cache_timestamp = 0
-            logger.info("🔄 Cache limpiado después de importar CSV")
-        
-        # Limpiar archivo temporal
+
+    # 2. Validar que se seleccionó un archivo
+    if file.filename == '':
+        return jsonify({'success': False, 'message': 'No se seleccionó ningún archivo'}), 400
+
+    # 3. Validar la extensión y procesar
+    if file and file.filename.lower().endswith('.csv'):
         try:
-            os.remove(filepath)
-        except:
-            pass
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"❌ Error subiendo CSV: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+            filename = secure_filename(file.filename)
+            user_id = session.get('user_id')
+            
+            if not user_id:
+                return jsonify({'success': False, 'message': 'Sesión de usuario no válida.'}), 401
+            
+            # Instanciar el procesador con los argumentos correctos
+            processor = CSVProcessor(file_stream=file.stream, filename=filename, user_id=user_id)
+            
+            # El método .process() devuelve una tupla (respuesta_json, status_code)
+            response, status_code = processor.process()
+            return response, status_code
+
+        except Exception as e:
+            logger.error(f"❌ Error fatal durante la carga del CSV: {e}", exc_info=True)
+            return jsonify({'success': False, 'message': 'Ocurrió un error inesperado en el servidor.'}), 500
+    else:
+        return jsonify({'success': False, 'message': 'Formato de archivo no válido. Por favor, sube un archivo .csv'}), 400
 
 @app.route('/api/history')
 @login_required
@@ -1044,31 +1043,7 @@ def current_user():
     else:
         return jsonify({'success': False, 'message': 'Usuario no encontrado'}), 401
 
-def initialize_system():
-    """Inicializar sistema con procesamiento automático de CSVs"""
-    try:
-        logger.info("🔄 Iniciando sistema...")
-        
-        # Buscar CSV unificado
-        unified_csv_path = os.path.join('data', 'unified_data.csv')
-        if os.path.exists(unified_csv_path):
-            logger.info("📊 Procesando unified_data.csv automáticamente...")
-            admin_user = User.query.filter(User.role == 'noc').first()
-            if admin_user:
-                processor = CSVProcessor()
-                result = processor.process_csv_file(unified_csv_path, admin_user.id)
-                if result.get('success'):
-                    logger.info(f"✅ unified_data.csv procesado: {result.get('configured', 0)} dispositivos configurados")
-                else:
-                    if result.get('code') == 'ALREADY_PROCESSED':
-                        logger.info("📋 unified_data.csv ya fue procesado anteriormente")
-                    else:
-                        logger.warning(f"⚠️ Error procesando unified_data.csv: {result.get('message')}")
-        
-        logger.info("✅ Sistema inicializado")
-        
-    except Exception as e:
-        logger.error(f"❌ Error inicializando sistema: {e}")
+
 
 if __name__ == '__main__':
     print("🚀 GenieACS WiFi Manager - VERSIÓN OPTIMIZADA")
@@ -1092,10 +1067,7 @@ if __name__ == '__main__':
         with app.app_context():
             db.session.execute(text('SELECT 1'))
             logger.info("✅ Conexión MySQL exitosa")
-            
-            # Inicializar sistema
-            initialize_system()
-            
+      
             print(f"\n🌐 Servidor disponible en: http://localhost:5000")
             print("🔐 MySQL integrado con XAMPP")
             print("📊 Paginación optimizada")

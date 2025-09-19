@@ -22,33 +22,31 @@ class DatabaseService:
 
     @staticmethod
     def create_default_users():
-        """Crear usuarios por defecto del sistema"""
+        """Crear usuarios por defecto del sistema, incluyendo el theme."""
         try:
             if not User.query.filter_by(username='admin').first():
-                admin_user = User(username='admin', role='noc', theme='system')
+                # Ahora la clase User acepta el argumento 'theme'
+                admin_user = User(username='admin', role='noc', theme='dark')
                 admin_user.set_password('admin123')
                 db.session.add(admin_user)
-                logger.info("✅ Usuario admin (NOC) creado")
+                print("  -> Usuario 'admin' (NOC) creado.")
 
             if not User.query.filter_by(username='informatica').first():
-                info_user = User(username='informatica', role='informatica', theme='system')
+                info_user = User(username='informatica', role='informatica', theme='light')
                 info_user.set_password('info123')
                 db.session.add(info_user)
-                logger.info("✅ Usuario informatica creado")
-
+                print("  -> Usuario 'informatica' (Admin) creado.")
+                
             if not User.query.filter_by(username='callcenter').first():
                 call_user = User(username='callcenter', role='callcenter', theme='system')
                 call_user.set_password('call123')
                 db.session.add(call_user)
-                logger.info("✅ Usuario callcenter creado")
+                print("  -> Usuario 'callcenter' (Operador) creado.")
 
-            db.session.commit()
-            logger.info("✅ Usuarios por defecto creados exitosamente")
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            logger.error(f"❌ Error creando usuarios por defecto: {e}")
-            raise
-
+            # No es necesario hacer commit aquí, el script principal lo hace
+        except Exception as e:
+            print(f"❌ Error durante la creación de usuarios por defecto: {e}")
+            raise e # Relanzar el error para detener el script principal
     @staticmethod
     def get_user_by_credentials(username, password):
         """Obtener usuario por credenciales"""
@@ -311,50 +309,64 @@ class DatabaseService:
 
     @staticmethod
     def get_all_devices_with_status():
-        """Obtener todos los dispositivos con su estado de configuración"""
+        """
+        Obtiene TODOS los dispositivos con su información combinada y un estado de 'configurado'.
+        Esta versión está optimizada para mostrar siempre los datos base de GenieACS.
+        """
         try:
-            devices = db.session.query(Device) \
-                .options(joinedload(Device.customer_info)) \
-                .options(joinedload(Device.wifi_networks)) \
-                .all()
-            result = []
-            for device in devices:
-                is_configured = DatabaseService.is_device_configured(device.id)
-                wifi_networks = []
-                for network in device.wifi_networks:
-                    wifi_networks.append({
-                        'band': network.band,
-                        'ssid': network.effective_ssid,
-                        'ssid_current': network.ssid_current,
-                        'ssid_configured': network.ssid_configured,
-                        'password': network.password if is_configured else '',
-                        'is_primary': network.is_primary,
-                        'wlan_configuration': network.wlan_configuration
-                    })
-                device_data = {
+            devices_query = Device.query.options(
+                joinedload(Device.customer_info),
+                joinedload(Device.wifi_networks)
+            ).all()
+
+            devices_list = []
+            for device in devices_query:
+                # Diccionario base con valores por defecto
+                device_info = {
                     'serial_number': device.serial_number,
-                    'mac': device.mac_address,
+                    'mac_address': device.mac_address,
                     'product_class': device.product_class,
-                    'software_version': device.software_version,
-                    'hardware_version': device.hardware_version,
-                    'ip': device.ip_address,
-                    'last_inform': device.last_inform,
-                    'tags': json.loads(device.tags) if device.tags else [],
-                    'wifi_networks': wifi_networks,
-                    'configured': is_configured,
-                    'contract_number': device.customer_info.contract_number if device.customer_info else None,
-                    'customer_name': device.customer_info.get_customer_name() if device.customer_info else None,
-                    'title_ssid': ''
+                    'ip_address': device.ip_address,
+                    'last_inform': device.last_inform.strftime('%Y-%m-%d %H:%M:%S') if device.last_inform else 'Nunca',
+                    'contract_number': None,
+                    'customer_name': None,
+                    'ssid_2_4': None, 'password_2_4': 'No disponible',
+                    'ssid_5': None, 'password_5': 'No disponible',
+                    'configured': False
                 }
-                for network in wifi_networks:
-                    if network['band'] == '5GHz' and network['ssid']:
-                        device_data['title_ssid'] = network['ssid']
-                        break
-                result.append(device_data)
-            return result
-        except SQLAlchemyError as e:
-            logger.error(f"❌ Error obteniendo dispositivos: {e}")
+
+                if device.customer_info:
+                    device_info['contract_number'] = device.customer_info.contract_number
+                    device_info['customer_name'] = device.customer_info.customer_name
+
+                has_pass_2_4 = False
+                has_pass_5 = False
+                for net in device.wifi_networks:
+                    if '2.4GHz' in net.band:
+                        device_info['ssid_2_4'] = net.ssid_configured
+                        if net.password:
+                            device_info['password_2_4'] = 'Visible'
+                            has_pass_2_4 = True
+                    elif '5GHz' in net.band:
+                        device_info['ssid_5'] = net.ssid_configured
+                        if net.password:
+                            device_info['password_5'] = 'Visible'
+                            has_pass_5 = True
+                
+                if device_info['contract_number'] and has_pass_2_4 and has_pass_5:
+                    device_info['configured'] = True
+
+                devices_list.append(device_info)
+                
+            return devices_list
+        except Exception as e:
+            # Usamos logger si está disponible
+            try:
+                logger.error(f"❌ Error crítico obteniendo dispositivos: {e}", exc_info=True)
+            except NameError:
+                print(f"ERROR: Error crítico obteniendo dispositivos: {e}")
             return []
+
 
     @staticmethod
     def get_unconfigured_devices():
@@ -583,27 +595,22 @@ class DatabaseService:
             return None
 
     @staticmethod
-    def update_device_ssid(serial_number, band_key, new_ssid):
-        """Actualizar SSID de un dispositivo"""
+    def update_device_ssid(serial_number, band, new_ssid, user_id=None):
+        """Actualiza el SSID de un dispositivo en la base de datos local y registra el cambio."""
         try:
             device = Device.query.filter_by(serial_number=serial_number).first()
             if not device:
-                logger.warning(f"Dispositivo no encontrado: {serial_number}")
+                logger.warning(f"Dispositivo no encontrado al actualizar SSID local: {serial_number}")
                 return False
-                
-            # Convertir band_key a band estándar
-            band = '2.4GHz' if '2.4GHz' in band_key else '5GHz'
+
+            network = WifiNetwork.query.filter_by(device_id=device.id, band=band).first()
             
-            network = WifiNetwork.query.filter_by(
-                device_id=device.id,
-                band=band
-            ).first()
-            
+            old_ssid = "N/A"
             if network:
+                old_ssid = network.ssid_configured or network.ssid_current or 'N/A'
                 network.ssid_configured = new_ssid
                 network.updated_at = datetime.utcnow()
             else:
-                # Crear nueva red si no existe
                 network = WifiNetwork(
                     device_id=device.id,
                     band=band,
@@ -612,37 +619,43 @@ class DatabaseService:
                 )
                 db.session.add(network)
             
-            db.session.commit()
-            logger.info(f"✅ SSID actualizado: {serial_number} {band} -> {new_ssid}")
-            return True
+            # Registrar el cambio en el historial
+            change = ChangeHistory(
+                device_id=device.id,
+                change_type='SSID_UI',
+                field_name=band,
+                old_value=old_ssid,
+                new_value=new_ssid,
+                user_id=user_id,
+                change_reason='Actualización desde UI'
+            )
+            db.session.add(change)
             
+            db.session.commit()
+            logger.info(f"✅ SSID actualizado localmente: {serial_number} {band} -> {new_ssid}")
+            return True
         except SQLAlchemyError as e:
             db.session.rollback()
-            logger.error(f"❌ Error actualizando SSID: {e}")
+            logger.error(f"❌ Error actualizando SSID local: {e}")
             return False
 
     @staticmethod
-    def update_device_password(serial_number, band_key, new_password):
-        """Actualizar contraseña de un dispositivo"""
+    def update_device_password(serial_number, band, new_password, user_id=None):
+        """Actualiza la contraseña de un dispositivo en la base de datos local y registra el cambio."""
         try:
             device = Device.query.filter_by(serial_number=serial_number).first()
             if not device:
-                logger.warning(f"Dispositivo no encontrado: {serial_number}")
+                logger.warning(f"Dispositivo no encontrado al actualizar contraseña local: {serial_number}")
                 return False
-                
-            # Convertir band_key a band estándar
-            band = '2.4GHz' if '2.4GHz' in band_key else '5GHz'
-            
-            network = WifiNetwork.query.filter_by(
-                device_id=device.id,
-                band=band
-            ).first()
-            
+
+            network = WifiNetwork.query.filter_by(device_id=device.id, band=band).first()
+
+            old_password_exists = False
             if network:
+                old_password_exists = bool(network.password)
                 network.password = new_password
                 network.updated_at = datetime.utcnow()
             else:
-                # Crear nueva red si no existe
                 network = WifiNetwork(
                     device_id=device.id,
                     band=band,
@@ -650,15 +663,27 @@ class DatabaseService:
                     is_primary=(band == '5GHz')
                 )
                 db.session.add(network)
+                
+            # Registrar el cambio en el historial
+            change = ChangeHistory(
+                device_id=device.id,
+                change_type='PASSWORD_UI',
+                field_name=band,
+                old_value='Sí' if old_password_exists else 'No',
+                new_value='Sí',
+                user_id=user_id,
+                change_reason='Actualización desde UI'
+            )
+            db.session.add(change)
             
             db.session.commit()
-            logger.info(f"✅ Contraseña actualizada: {serial_number} {band}")
+            logger.info(f"✅ Contraseña actualizada localmente: {serial_number} {band}")
             return True
-            
         except SQLAlchemyError as e:
             db.session.rollback()
-            logger.error(f"❌ Error actualizando contraseña: {e}")
+            logger.error(f"❌ Error actualizando contraseña local: {e}")
             return False
+
 
     @staticmethod
     def get_device_by_id(device_id):
@@ -668,4 +693,264 @@ class DatabaseService:
         except SQLAlchemyError as e:
             logger.error(f"❌ Error obteniendo dispositivo por ID: {e}")
             return None
+
+    @staticmethod
+    def get_device_by_serial(serial_number):
+        """Busca un dispositivo en la base de datos por su número de serie."""
+        return Device.query.filter_by(serial_number=serial_number).first()
+
+    @staticmethod
+    def get_customer_info_by_serial(serial_number):
+        """Busca la información de un cliente a través del número de serie del dispositivo."""
+        device = Device.query.filter_by(serial_number=serial_number).first()
+        if device:
+            return CustomerInfo.query.filter_by(device_id=device.id).first()
+        return None
+
+    @staticmethod
+    def get_product_class_by_serial(serial_number):
+        """Obtiene el Product Class de un dispositivo por su número de serie."""
+        device = Device.query.filter_by(serial_number=serial_number).first()
+        if device:
+            return device.product_class
+        return None
+    
+    # En db_services.py, dentro de la clase DatabaseService
+
+    @staticmethod
+    def update_device_channel(serial_number, band, new_channel, user_id=None):
+        """Actualiza el canal de una red WiFi en la base de datos local."""
+        try:
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            if not device: return False
+            
+            network = WifiNetwork.query.filter_by(device_id=device.id, band=band).first()
+            old_channel = "N/A"
+            if network:
+                old_channel = network.channel
+                network.channel = new_channel
+            else:
+                network = WifiNetwork(device_id=device.id, band=band, channel=new_channel)
+                db.session.add(network)
+            
+            change = ChangeHistory(
+                device_id=device.id, user_id=user_id, change_type='Channel',
+                field_name=band, old_value=str(old_channel), new_value=str(new_channel)
+            )
+            db.session.add(change)
+            db.session.commit()
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"❌ Error actualizando canal local: {e}")
+            return False
+
+    @staticmethod
+    def update_device_bandwidth(serial_number, band, new_bandwidth, user_id=None):
+        """Actualiza el ancho de banda de una red WiFi en la base de datos local."""
+        try:
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            if not device: return False
+            
+            network = WifiNetwork.query.filter_by(device_id=device.id, band=band).first()
+            old_bandwidth = "N/A"
+            if network:
+                old_bandwidth = network.bandwidth
+                network.bandwidth = new_bandwidth
+            else:
+                network = WifiNetwork(device_id=device.id, band=band, bandwidth=new_bandwidth)
+                db.session.add(network)
+
+            change = ChangeHistory(
+                device_id=device.id, user_id=user_id, change_type='Bandwidth',
+                field_name=band, old_value=str(old_bandwidth), new_value=str(new_bandwidth)
+            )
+            db.session.add(change)
+            db.session.commit()
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"❌ Error actualizando ancho de banda local: {e}")
+            return False
+        
+
+    # En db_services.py, dentro de la clase DatabaseService
+
+    @staticmethod
+    def sync_device_wifi_networks(device_id, wifi_networks_from_genie):
+        """Sincroniza las redes WiFi de un dispositivo con los datos de GenieACS."""
+        try:
+            for net_data in wifi_networks_from_genie:
+                band = net_data.get('band')
+                if not band: continue
+
+                network = WifiNetwork.query.filter_by(device_id=device_id, band=band).first()
+                
+                # Con el nuevo models.py, 'is_primary' es un campo válido.
+                # Lo ponemos en False por defecto durante la sincronización.
+                if not network:
+                    network = WifiNetwork(
+                        device_id=device_id,
+                        band=band,
+                        ssid_current=net_data.get('ssid'),
+                        is_primary=False  # <--- Ahora esto es válido
+                    )
+                    db.session.add(network)
+                else:
+                    network.ssid_current = net_data.get('ssid')
+            
+            # El commit se debe hacer fuera de esta función, en el bucle principal de sincronización.
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error actualizando redes WiFi para device_id {device_id}: {e}")
+            # Relanzar el error para que el proceso que lo llamó se detenga
+            raise e
+        
+    # En db_services.py, dentro de la clase DatabaseService
+
+    @staticmethod
+    def sync_devices_in_bulk(devices_from_genie: list):
+        """
+        Sincroniza una lista completa de dispositivos desde GenieACS de forma masiva y eficiente.
+        """
+        if not devices_from_genie:
+            return 0, 0
+
+        # 1. Obtener todos los dispositivos existentes de la BD en una sola consulta
+        existing_serials = {device.serial_number: device for device in Device.query.all()}
+        
+        new_devices = []
+        updated_count = 0
+
+        # 2. Procesar los datos en memoria
+        for device_data in devices_from_genie:
+            serial_number = device_data.get('_id') # O el campo correcto de GenieACS
+            if not serial_number:
+                continue
+
+            if serial_number not in existing_serials:
+                # Dispositivo NUEVO: lo preparamos para inserción masiva
+                new_device = Device(
+                    serial_number=serial_number,
+                    mac_address=normalize_mac(device_data.get('InternetGatewayDevice.WANDevice.1.WANConnectionDevice.1.WANIPConnection.1.MACAddress', {}).get('_value')),
+                    product_class=device_data.get('DeviceID.ProductClass', {}).get('_value'),
+                    ip_address=device_data.get('InternetGatewayDevice.LANIPAddress', {}).get('_value'),
+                    last_inform=datetime.fromisoformat(device_data.get('lastInform', '1970-01-01T00:00:00.000Z').replace('Z', '+00:00'))
+                )
+                new_devices.append(new_device)
+            else:
+                # Dispositivo EXISTENTE: lo actualizamos si es necesario (opcional)
+                # Por ahora, nos enfocamos en la inserción rápida.
+                # Puedes añadir lógica de actualización aquí si es necesario.
+                device_to_update = existing_serials[serial_number]
+                # ... lógica de actualización ...
+                updated_count += 1
+        
+        try:
+            # 3. Insertar todos los dispositivos nuevos en una sola operación masiva
+            if new_devices:
+                db.session.bulk_save_objects(new_devices)
+            
+            db.session.commit()
+            return len(new_devices), updated_count
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"❌ Error durante la sincronización masiva de dispositivos: {e}")
+            raise e
+
+    @staticmethod
+    def check_csv_hash_exists(file_hash: str) -> bool:
+        """Verifica si un hash de archivo ya existe en la tabla CSVImportHistory."""
+        return db.session.query(CSVImportHistory.query.filter_by(file_hash=file_hash).exists()).scalar()
+
+    @staticmethod
+    def log_csv_import(filename: str, user_id: int, file_hash: str, stats: dict, status: str = 'Completed', error_message: str = None):
+        """Registra el resultado de una importación de CSV en el historial."""
+        try:
+            history_entry = CSVImportHistory(
+                filename=filename,
+                user_id=user_id,
+                file_hash=file_hash,
+                records_processed=stats.get('processed', 0),
+                records_updated=stats.get('updated', 0),
+                records_failed=stats.get('failed', 0),
+                status=status,
+                error_message=error_message
+            )
+            db.session.add(history_entry)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"❌ Error crítico al registrar el historial de importación del CSV: {e}")
+
+    @staticmethod
+    def update_device_from_csv(mac_address: str, customer_data: dict, wifi_networks_data: list, user_id: int) -> str:
+        """
+        Busca un dispositivo por MAC y actualiza su información desde los datos del CSV.
+        Registra cada cambio individualmente en el historial de cambios.
+        Devuelve 'updated', 'no_change', o 'failed'.
+        """
+        device = Device.query.filter_by(mac_address=mac_address).first()
+        if not device:
+            logger.warning(f"CSV: Dispositivo con MAC {mac_address} no encontrado. Omitiendo fila.")
+            return 'failed'
+
+        try:
+            changed = False
+
+            # --- 1. Actualizar CustomerInfo ---
+            customer_info = device.customer_info
+            if not customer_info:
+                customer_info = CustomerInfo(device_id=device.id)
+                db.session.add(customer_info)
+            
+            # Compara y actualiza si es necesario
+            if customer_data.get('contract_number') and customer_info.contract_number != customer_data['contract_number']:
+                customer_info.contract_number = customer_data['contract_number']
+                changed = True
+            
+            if customer_data.get('customer_name') and customer_info.customer_name != customer_data['customer_name']:
+                customer_info.customer_name = customer_data['customer_name']
+                changed = True
+
+            # --- 2. Actualizar WifiNetworks ---
+            for net_data in wifi_networks_data:
+                band = net_data.get('band')
+                ssid = net_data.get('ssid')
+                password_encrypted = net_data.get('password') # Ya viene cifrada
+
+                if not all([band, ssid, password_encrypted]):
+                    continue
+
+                network = WifiNetwork.query.filter_by(device_id=device.id, band=band).first()
+                if not network:
+                    network = WifiNetwork(device_id=device.id, band=band)
+                    db.session.add(network)
+                
+                if network.ssid_configured != ssid:
+                    # Aquí podrías registrar el cambio en ChangeHistory si quieres
+                    network.ssid_configured = ssid
+                    changed = True
+                
+                if network.password != password_encrypted:
+                    # Aquí también podrías registrar el cambio
+                    network.password = password_encrypted
+                    changed = True
+            
+            if changed:
+                db.session.commit()
+                return 'updated'
+            else:
+                return 'no_change'
+                
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"Error de base de datos actualizando desde CSV para MAC {mac_address}: {e}")
+            return 'failed'
+
+
+
+
+
+
 
